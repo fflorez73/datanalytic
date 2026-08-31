@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
 import { SignOutButton } from '@/components/sign-out-button';
@@ -50,7 +51,9 @@ export default async function ClientDashboardPage() {
             <ul className="divide-y divide-slate-100">
               {analyses.map((a) => (
                 <li key={a.id} className="flex items-center justify-between py-2 text-sm">
-                  <span className="text-slate-800">{a.title}</span>
+                  <Link href={`/dashboard/analyses/${a.id}`} className="text-slate-800 hover:underline">
+                    {a.title}
+                  </Link>
                   <span className="text-slate-400">
                     {a.period_start} — {a.period_end}
                   </span>

@@ -14,6 +14,21 @@ type AccountKey =
   | 'utilidad_neta'
   | 'ventas';
 
+const ACCOUNT_LABELS: Record<AccountKey, string> = {
+  activo_corriente: 'Activo Corriente',
+  pasivo_corriente: 'Pasivo Corriente',
+  inventarios: 'Inventarios',
+  total_activo: 'Total Activo',
+  total_pasivo: 'Total Pasivo',
+  total_patrimonio: 'Total Patrimonio',
+  obligaciones_financieras: 'Obligaciones Financieras',
+  utilidad_operacional: 'Utilidad Operacional',
+  gastos_financieros: 'Gastos Financieros',
+  utilidad_bruta: 'Utilidad Bruta',
+  utilidad_neta: 'Utilidad Neta',
+  ventas: 'Ventas',
+};
+
 /**
  * Reglas de matching por palabras clave sobre el label de cada fila (en minúsculas).
  * Orden importa: las más específicas ("total X") van antes que las genéricas
@@ -169,6 +184,10 @@ export function computeFinancialResults(rows: Record<string, unknown>[]) {
   const activoCorrienteMenosInventarios =
     activo_corriente !== undefined && inventarios !== undefined ? activo_corriente - inventarios : undefined;
 
+  const warnings: string[] = (Object.keys(ACCOUNT_LABELS) as AccountKey[])
+    .filter((key) => accounts[key] === undefined)
+    .map((key) => `No se identificó la cuenta "${ACCOUNT_LABELS[key]}" en el archivo — los indicadores que la requieren quedaron sin calcular.`);
+
   return {
     liquidez: {
       razon_corriente: safeDiv(activo_corriente, pasivo_corriente),
@@ -188,5 +207,56 @@ export function computeFinancialResults(rows: Record<string, unknown>[]) {
       roe: safeDiv(utilidad_neta, total_patrimonio),
     },
     cuentas_detectadas: accounts,
+    warnings,
   };
+}
+
+// ================================================================
+// Metadata de presentación — usada por la vista de detalle
+// (super admin y cliente) para renderizar/formatear los indicadores.
+// ================================================================
+
+export type IndicatorFormat = 'ratio' | 'percent' | 'currency';
+
+export const INDICATOR_SECTIONS: {
+  key: 'liquidez' | 'endeudamiento' | 'rentabilidad';
+  title: string;
+  items: { key: string; label: string; format: IndicatorFormat }[];
+}[] = [
+  {
+    key: 'liquidez',
+    title: 'Liquidez',
+    items: [
+      { key: 'razon_corriente', label: 'Razón Corriente', format: 'ratio' },
+      { key: 'prueba_acida', label: 'Prueba Ácida', format: 'ratio' },
+      { key: 'capital_trabajo', label: 'Capital de Trabajo', format: 'currency' },
+    ],
+  },
+  {
+    key: 'endeudamiento',
+    title: 'Endeudamiento',
+    items: [
+      { key: 'nivel_endeudamiento', label: 'Nivel de Endeudamiento', format: 'percent' },
+      { key: 'endeudamiento_financiero', label: 'Endeudamiento Financiero', format: 'percent' },
+      { key: 'cobertura_intereses', label: 'Cobertura de Intereses', format: 'ratio' },
+    ],
+  },
+  {
+    key: 'rentabilidad',
+    title: 'Rentabilidad',
+    items: [
+      { key: 'margen_bruto', label: 'Margen Bruto', format: 'percent' },
+      { key: 'margen_operacional', label: 'Margen Operacional', format: 'percent' },
+      { key: 'margen_neto', label: 'Margen Neto', format: 'percent' },
+      { key: 'roa', label: 'ROA', format: 'percent' },
+      { key: 'roe', label: 'ROE', format: 'percent' },
+    ],
+  },
+];
+
+export function formatIndicatorValue(value: number | null | undefined, format: IndicatorFormat): string {
+  if (value === null || value === undefined || Number.isNaN(value)) return '—';
+  if (format === 'percent') return `${(value * 100).toFixed(2)}%`;
+  if (format === 'currency') return new Intl.NumberFormat('es-CO', { maximumFractionDigits: 0 }).format(value);
+  return value.toFixed(2);
 }

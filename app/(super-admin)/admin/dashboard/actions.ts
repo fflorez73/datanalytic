@@ -4,7 +4,7 @@ import { revalidatePath } from 'next/cache';
 import ExcelJS from 'exceljs';
 import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
-import { computeFinancialResults, FINANCIAL_ANALYSIS_TYPE_CODES } from './financial-indicators';
+import { computeFinancialResults, FINANCIAL_ANALYSIS_TYPE_CODES } from '@/lib/financial-indicators';
 
 export type ActionState = { error?: string; success?: boolean };
 

@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { getSelectedCompany } from '@/lib/company-context';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { CreateAnalysisForm } from '../_components/create-analysis-form';
@@ -85,7 +86,15 @@ export default async function AnalysesPage() {
                       </span>
                     </td>
                     <td className="py-3 pr-6">
-                      <AnalysisRowActions analysisId={a.id} companyId={company.id} status={a.status} />
+                      <div className="flex items-center gap-3">
+                        <Link
+                          href={`/admin/dashboard/analyses/${a.id}`}
+                          className="text-xs font-medium text-slate-600 hover:underline"
+                        >
+                          Ver detalle
+                        </Link>
+                        <AnalysisRowActions analysisId={a.id} companyId={company.id} status={a.status} />
+                      </div>
                     </td>
                   </tr>
                 ))}
