@@ -4,12 +4,27 @@ import { INDICATOR_SECTIONS, formatIndicatorValue } from './financial-indicators
 
 const ANTHROPIC_MODEL = 'claude-opus-5';
 
+const SECCION_TITULOS = [
+  'Diagnóstico de Rentabilidad',
+  'ROE mediante DuPont',
+  'ROA y Creación de Valor',
+  'Estructura Financiera y Solvencia',
+  'Liquidez y Capital de Trabajo',
+  'Cartera, Inventarios y Ciclo de Caja',
+] as const;
+
 export type FinancialNarrative = {
   resumen_ejecutivo: string;
   dictamen: 'favorable' | 'favorable_con_observaciones' | 'requiere_atencion' | 'critico';
   hallazgos_clave: string[];
-  observaciones: string[];
-  riesgos: { descripcion: string; nivel: 'verde' | 'amarillo' | 'rojo'; tendencia: 'mejora' | 'estable' | 'deterioro' }[];
+  secciones: { titulo: string; analisis: string }[];
+  riesgos: {
+    descripcion: string;
+    nivel: 'verde' | 'amarillo' | 'rojo';
+    tendencia: 'mejora' | 'estable' | 'deterioro';
+    prioridad: 'alta' | 'media' | 'baja';
+  }[];
+  senales_alerta: string[];
   recomendaciones: { accion: string; responsable_sugerido: string; horizonte: string }[];
   conclusion: string;
 };
@@ -28,20 +43,54 @@ function buildIndicatorsSummary(results: any): string {
   return lines.join('\n');
 }
 
+function buildComposicionSummary(results: any): string {
+  const activos = results?.composicion_activos;
+  const financiacion = results?.composicion_financiacion;
+  if (!activos && !financiacion) return '';
+
+  const pct = (v: unknown) => (typeof v === 'number' ? `${(v * 100).toFixed(1)}%` : 'no disponible');
+  const lines: string[] = ['\nComposición del Balance:'];
+
+  if (activos) {
+    lines.push(
+      `  - Composición de Activos: Efectivo ${pct(activos.efectivo_pct)}, Cuentas por Cobrar ${pct(activos.cxc_pct)}, Inventarios ${pct(activos.inventarios_pct)}, Otros Activo Corriente ${pct(activos.otros_ac_pct)}, Activo No Corriente ${pct(activos.activo_nc_pct)}.`
+    );
+  }
+  if (financiacion) {
+    lines.push(
+      `  - Composición de Financiación: Pasivo Corto Plazo ${pct(financiacion.pasivo_cp_pct)}, Pasivo Largo Plazo ${pct(financiacion.pasivo_lp_pct)}, Patrimonio ${pct(financiacion.patrimonio_pct)}.`
+    );
+  }
+  return lines.join('\n');
+}
+
+function buildCoherenciaSummary(results: any): string {
+  const c = results?.coherencia_contable;
+  if (!c) return '';
+  if (c.inconsistente) {
+    return `\nVERIFICACIÓN DE COHERENCIA CONTABLE — INCONSISTENCIA DETECTADA:\n  ${c.mensaje}\n  Diferencia: ${(c.diferencia_pct * 100).toFixed(1)}% (umbral de alerta: 5%). Esta inconsistencia DEBE tratarse como riesgo de prioridad alta.`;
+  }
+  return `\nVerificación de coherencia contable: la Utilidad del ejercicio del Balance (${formatIndicatorValue(c.utilidad_balance, 'currency')}) y la Utilidad Neta del Estado de Resultados (${formatIndicatorValue(c.utilidad_neta_pl, 'currency')}) son consistentes (diferencia de ${(c.diferencia_pct * 100).toFixed(1)}%).`;
+}
+
 function buildComparativoSummary(results: any): string {
   const comparativo = results?.comparativo_periodo_anterior;
   if (!comparativo || typeof comparativo !== 'object') return '';
 
   const lines: string[] = [`\nComparativo contra el período cerrado en ${comparativo.period_end_base}:`];
 
-  for (const section of INDICATOR_SECTIONS) {
-    const sectionEntries = comparativo.indicadores?.[section.key];
-    if (!sectionEntries) continue;
+  const cuentaLabels: Record<string, { label: string; format: 'currency' }> = {
+    ventas: { label: 'Ventas Netas', format: 'currency' },
+    utilidad_neta: { label: 'Utilidad Neta', format: 'currency' },
+    utilidad_operacional: { label: 'EBIT', format: 'currency' },
+  };
 
-    for (const item of section.items) {
+  function pushEntries(sectionKey: string, items: { key: string; label: string; format: any }[]) {
+    const sectionEntries = comparativo.indicadores?.[sectionKey];
+    if (!sectionEntries) return;
+    for (const item of items) {
       const entry = sectionEntries[item.key];
       if (!entry) continue;
-
       const actual = formatIndicatorValue(entry.valor_actual, item.format);
       const anterior = formatIndicatorValue(entry.valor_anterior, item.format);
       const variacion =
@@ -50,40 +99,58 @@ function buildComparativoSummary(results: any): string {
           : entry.variacion_relativa_pct !== null
             ? `${entry.variacion_relativa_pct >= 0 ? '+' : ''}${entry.variacion_relativa_pct.toFixed(2)}%`
             : `variación absoluta ${entry.variacion_absoluta}`;
-
       lines.push(`  - ${item.label}: de ${anterior} a ${actual} (${variacion})`);
     }
+  }
+
+  pushEntries(
+    'cuentas',
+    Object.entries(cuentaLabels).map(([key, v]) => ({ key, label: v.label, format: v.format }))
+  );
+  for (const section of INDICATOR_SECTIONS) {
+    pushEntries(section.key, section.items);
   }
 
   return lines.length > 1 ? lines.join('\n') : '';
 }
 
 function buildSystemPrompt(): string {
-  return `Actúa como un CFO / analista financiero senior preparando el informe ejecutivo de indicadores financieros para la junta directiva de una empresa latinoamericana. Tu audiencia son directores que toman decisiones de negocio, no contadores — sé directo, específico y accionable, nunca genérico.
+  return `Actúa como un CFO / analista financiero senior de una firma consultora, preparando un informe ejecutivo de diagnóstico financiero integral para la junta directiva de una empresa latinoamericana — con la profundidad y el rigor de un informe de asesor externo, no un resumen automático. Tu audiencia son directores que toman decisiones de negocio, no contadores: sé directo, específico y accionable, nunca genérico.
 
-Cita siempre cifras exactas de los indicadores entregados (por ejemplo "la razón corriente de 2.20 indica una cobertura holgada del pasivo corriente" en vez de "la liquidez es buena"). Si se entrega un comparativo contra el período anterior, úsalo para hablar de tendencia y priorizar qué cambió, citando también esas cifras. Si un indicador no está disponible, no inventes un valor ni lo menciones como si existiera.
+Cita SIEMPRE cifras exactas de los indicadores entregados (p.ej. "la razón corriente de 2.20 indica una cobertura holgada del pasivo corriente" en vez de "la liquidez es buena"). Cuando haya comparativo contra el período anterior, úsalo para hablar de tendencia y priorizar qué cambió, citando esas cifras también. Si un indicador no está disponible, no inventes un valor ni lo menciones como si existiera.
 
 Responde ÚNICAMENTE con un objeto JSON válido, sin texto antes ni después, sin bloques de código markdown (nada de \`\`\`json ni \`\`\`), con exactamente esta estructura:
 {
-  "resumen_ejecutivo": "2-4 frases sobre el estado general de la empresa según estos indicadores, en tono de informe de junta directiva",
+  "resumen_ejecutivo": "2-4 frases sobre el estado general de la empresa, tono de informe de junta directiva",
   "dictamen": "favorable" | "favorable_con_observaciones" | "requiere_atencion" | "critico",
   "hallazgos_clave": ["hallazgo con cifra concreta", "..."],
-  "observaciones": ["observación específica citando un valor real", "..."],
+  "secciones": [
+    { "titulo": "Diagnóstico de Rentabilidad", "analisis": "párrafo de 3-5 líneas" },
+    { "titulo": "ROE mediante DuPont", "analisis": "párrafo de 3-5 líneas" },
+    { "titulo": "ROA y Creación de Valor", "analisis": "párrafo de 3-5 líneas" },
+    { "titulo": "Estructura Financiera y Solvencia", "analisis": "párrafo de 3-5 líneas" },
+    { "titulo": "Liquidez y Capital de Trabajo", "analisis": "párrafo de 3-5 líneas" },
+    { "titulo": "Cartera, Inventarios y Ciclo de Caja", "analisis": "párrafo de 3-5 líneas" }
+  ],
   "riesgos": [
-    { "descripcion": "riesgo concreto citando el indicador que lo origina", "nivel": "verde" | "amarillo" | "rojo", "tendencia": "mejora" | "estable" | "deterioro" }
+    { "descripcion": "riesgo concreto citando el indicador que lo origina", "nivel": "verde" | "amarillo" | "rojo", "tendencia": "mejora" | "estable" | "deterioro", "prioridad": "alta" | "media" | "baja" }
   ],
+  "senales_alerta": ["umbral concreto a vigilar, ej: 'DSO > 70 días' o 'Cobertura de intereses por debajo de 3x'"],
   "recomendaciones": [
-    { "accion": "acción concreta y accionable", "responsable_sugerido": "rol responsable (p.ej. 'Gerencia Financiera', 'Tesorería', 'Gerencia Comercial')", "horizonte": "plazo sugerido (p.ej. 'inmediato', '30 días', 'próximo trimestre')" }
+    { "accion": "acción concreta y accionable", "responsable_sugerido": "rol responsable (p.ej. 'Gerencia Financiera', 'Tesorería', 'Contabilidad / Revisoría Fiscal')", "horizonte": "plazo sugerido (p.ej. 'inmediato', '30 días', 'próximo trimestre')" }
   ],
-  "conclusion": "1-2 frases de cierre sobre viabilidad/continuidad del negocio basada en estos números"
+  "conclusion": "2-3 frases de cierre sobre viabilidad/continuidad del negocio y el dictamen general"
 }
 
+Cada "analisis" de "secciones" debe tener la misma profundidad que el cuerpo de un informe de junta directiva real: no una lista de bullets ni una frase suelta, sino un párrafo narrativo de 3-5 líneas que conecte varias cifras entre sí (p.ej. cómo el crecimiento de ventas y el control de gastos explican la expansión del margen, o cómo el desapalancamiento simultáneo a la mejora de rentabilidad es una señal de calidad). Usa exactamente los 6 títulos de sección indicados arriba, en ese orden.
+
 Reglas:
-- "dictamen" debe reflejar honestamente la severidad combinada de los indicadores: "favorable" si todo está saludable, "favorable_con_observaciones" si hay puntos a vigilar pero sin riesgo serio, "requiere_atencion" si hay uno o más indicadores en zona de alerta, "critico" si hay riesgo real de continuidad o incumplimiento.
-- "riesgos" debe quedar como array vacío [] si no hay problemas serios — no inventes riesgos para llenar el campo. Prioriza los riesgos de mayor a menor severidad (nivel "rojo" primero).
-- "tendencia" en cada riesgo debe basarse en el comparativo contra el período anterior cuando esté disponible; usa "estable" si no hay comparativo o el indicador no cambió de forma relevante.
-- "recomendaciones" deben ser accionables y específicas al negocio — nunca frases de relleno ("mejorar la gestión financiera"). Cada una debe tener responsable y horizonte concretos.
-- No uses frases genéricas de relleno ("la empresa muestra un desempeño aceptable"). Cada hallazgo y observación debe referirse a un número concreto de los indicadores dados.
+- "dictamen" refleja la severidad combinada: "favorable" si todo está saludable, "favorable_con_observaciones" si hay puntos a vigilar sin riesgo serio, "requiere_atencion" si hay uno o más indicadores en zona de alerta, "critico" si hay riesgo real de continuidad o incumplimiento.
+- Si el contexto incluye una VERIFICACIÓN DE COHERENCIA CONTABLE con inconsistencia detectada, esa inconsistencia es SIEMPRE un riesgo de "prioridad": "alta" — inclúyela como el primer riesgo del array, con "nivel": "amarillo" (es una alerta de calidad de datos, no una falla operativa), y menciónala explícitamente en el resumen ejecutivo y en la sección "Estructura Financiera y Solvencia" o donde corresponda. Nunca la omitas ni la minimices.
+- "riesgos" prioriza de mayor a menor severidad ("prioridad": "alta" primero); no inventes riesgos para llenar el campo si no los hay, pero la inconsistencia contable (si existe) siempre cuenta como uno.
+- "senales_alerta" son umbrales concretos y verificables a futuro (con número), no advertencias vagas — p.ej. "DSO > 70 días", "Cobertura de intereses por debajo de 3x", "Reversión del margen bruto por debajo de X%".
+- "recomendaciones" deben ser accionables y específicas — nunca frases de relleno ("mejorar la gestión financiera"). Si hay inconsistencia contable, la primera recomendación debe ser reconciliarla con Contabilidad/Revisoría Fiscal, horizonte "inmediato".
+- No uses frases genéricas de relleno. Cada afirmación debe referirse a un número concreto de los indicadores dados.
 - No agregues explicaciones, disculpas ni texto fuera del objeto JSON.`;
 }
 
@@ -102,16 +169,16 @@ Tipo de análisis: ${input.analysisTypeName}
 
 Indicadores calculados:
 ${buildIndicatorsSummary(input.results)}
+${buildComposicionSummary(input.results)}
+${buildCoherenciaSummary(input.results)}
 ${buildComparativoSummary(input.results)}
 ${
   warnings.length > 0
-    ? `\nCuentas que no se pudieron identificar en el archivo fuente (por eso algunos indicadores no están disponibles):\n${warnings
-        .map((w) => `- ${w}`)
-        .join('\n')}`
+    ? `\nAdvertencias del motor de cálculo:\n${warnings.map((w) => `- ${w}`).join('\n')}`
     : ''
 }
 
-Genera el informe ejecutivo en el formato JSON indicado.`;
+Genera el informe ejecutivo en el formato JSON indicado, usando exactamente estos 6 títulos de sección en este orden: ${SECCION_TITULOS.map((t) => `"${t}"`).join(', ')}.`;
 }
 
 function isStringArray(value: unknown): value is string[] {
@@ -138,15 +205,18 @@ function parseNarrativeJson(text: string): FinancialNarrative | null {
     typeof obj.resumen_ejecutivo === 'string' &&
     ['favorable', 'favorable_con_observaciones', 'requiere_atencion', 'critico'].includes(obj.dictamen) &&
     isStringArray(obj.hallazgos_clave) &&
-    isStringArray(obj.observaciones) &&
+    Array.isArray(obj.secciones) &&
+    obj.secciones.every((s: any) => s && typeof s.titulo === 'string' && typeof s.analisis === 'string') &&
     Array.isArray(obj.riesgos) &&
     obj.riesgos.every(
       (r: any) =>
         r &&
         typeof r.descripcion === 'string' &&
         ['verde', 'amarillo', 'rojo'].includes(r.nivel) &&
-        ['mejora', 'estable', 'deterioro'].includes(r.tendencia)
+        ['mejora', 'estable', 'deterioro'].includes(r.tendencia) &&
+        ['alta', 'media', 'baja'].includes(r.prioridad)
     ) &&
+    isStringArray(obj.senales_alerta) &&
     Array.isArray(obj.recomendaciones) &&
     obj.recomendaciones.every(
       (r: any) =>
@@ -180,7 +250,7 @@ export async function generateNarrative(input: {
   try {
     const response = await client.messages.create({
       model: ANTHROPIC_MODEL,
-      max_tokens: 4000,
+      max_tokens: 8000,
       system: buildSystemPrompt(),
       messages: [{ role: 'user', content: buildUserPrompt(input) }],
     });

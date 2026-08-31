@@ -16,7 +16,10 @@ type AccountKey =
   | 'cuentas_por_cobrar'
   | 'cuentas_por_pagar'
   | 'costo_ventas'
-  | 'efectivo_y_equivalentes';
+  | 'efectivo_y_equivalentes'
+  | 'utilidad_antes_impuestos'
+  | 'impuesto_renta'
+  | 'utilidad_ejercicio_balance';
 
 const ACCOUNT_LABELS: Record<AccountKey, string> = {
   activo_corriente: 'Activo Corriente',
@@ -35,7 +38,22 @@ const ACCOUNT_LABELS: Record<AccountKey, string> = {
   cuentas_por_pagar: 'Cuentas por Pagar',
   costo_ventas: 'Costo de Ventas',
   efectivo_y_equivalentes: 'Efectivo y Equivalentes',
+  utilidad_antes_impuestos: 'Utilidad Antes de Impuestos',
+  impuesto_renta: 'Impuesto de Renta',
+  utilidad_ejercicio_balance: 'Utilidad del Ejercicio (Balance)',
 };
+
+/**
+ * Cuentas cuya ausencia SÍ genera warning ("no se identificó..."): son la base
+ * de los indicadores principales y prácticamente todo balance/P&G las trae.
+ * Las tres cuentas nuevas (EBT, impuesto de renta, utilidad del ejercicio del
+ * balance) son soporte de DuPont ampliado y de la verificación de coherencia —
+ * muchos archivos simples no las reportan como línea separada, así que avisar
+ * de su ausencia sería ruido, no una alerta útil.
+ */
+const CORE_ACCOUNT_KEYS: AccountKey[] = (Object.keys(ACCOUNT_LABELS) as AccountKey[]).filter(
+  (key) => key !== 'utilidad_antes_impuestos' && key !== 'impuesto_renta' && key !== 'utilidad_ejercicio_balance'
+);
 
 /**
  * Reglas de matching por palabras clave sobre el label de cada fila (en minúsculas).
@@ -80,7 +98,25 @@ const ACCOUNT_RULES: { key: AccountKey; test: (label: string) => boolean; sum?: 
     key: 'utilidad_operacional',
     test: (l) => l.includes('utilidad') && (l.includes('operacional') || l.includes('operativa')),
   },
+  {
+    // "Utilidad Antes de Impuestos" (EBT) — específico, antes de utilidad_neta
+    // para no colisionar si algún archivo la nombra distinto.
+    key: 'utilidad_antes_impuestos',
+    test: (l) => l.includes('utilidad') && l.includes('antes') && l.includes('impuesto'),
+  },
+  {
+    // "Utilidad del ejercicio" en el Balance (patrimonio) — distinta de la
+    // "Utilidad Neta" del Estado de Resultados; ambas se comparan en la
+    // verificación de coherencia contable.
+    key: 'utilidad_ejercicio_balance',
+    test: (l) => l.includes('utilidad') && l.includes('ejercicio'),
+  },
   { key: 'utilidad_neta', test: (l) => l.includes('utilidad') && l.includes('neta') },
+  {
+    key: 'impuesto_renta',
+    test: (l) => l.includes('impuesto') && l.includes('renta'),
+    abs: true,
+  },
   {
     key: 'gastos_financieros',
     test: (l) => (l.includes('gasto') || l.includes('costo')) && l.includes('financ'),
@@ -236,16 +272,31 @@ export function computeFinancialResults(
     cuentas_por_pagar,
     costo_ventas,
     efectivo_y_equivalentes,
+    utilidad_antes_impuestos,
+    impuesto_renta,
+    utilidad_ejercicio_balance,
   } = accounts;
 
   const activoCorrienteMenosInventarios =
     activo_corriente !== undefined && inventarios !== undefined ? activo_corriente - inventarios : undefined;
 
+  const pasivoNoCorriente =
+    total_pasivo !== undefined && pasivo_corriente !== undefined ? total_pasivo - pasivo_corriente : undefined;
+  const activoNoCorriente =
+    total_activo !== undefined && activo_corriente !== undefined ? total_activo - activo_corriente : undefined;
+  const otrosActivoCorriente =
+    activo_corriente !== undefined &&
+    efectivo_y_equivalentes !== undefined &&
+    cuentas_por_cobrar !== undefined &&
+    inventarios !== undefined
+      ? activo_corriente - efectivo_y_equivalentes - cuentas_por_cobrar - inventarios
+      : undefined;
+
   const periodDays = computePeriodDays(period?.periodStart, period?.periodEnd);
 
-  const warnings: string[] = (Object.keys(ACCOUNT_LABELS) as AccountKey[])
-    .filter((key) => accounts[key] === undefined)
-    .map((key) => `No se identificó la cuenta "${ACCOUNT_LABELS[key]}" en el archivo — los indicadores que la requieren quedaron sin calcular.`);
+  const warnings: string[] = CORE_ACCOUNT_KEYS.filter((key) => accounts[key] === undefined).map(
+    (key) => `No se identificó la cuenta "${ACCOUNT_LABELS[key]}" en el archivo — los indicadores que la requieren quedaron sin calcular.`
+  );
 
   if (periodDays === null) {
     warnings.push(
@@ -262,6 +313,42 @@ export function computeFinancialResults(
   const ato = safeDiv(ventas, total_activo);
   const em = safeDiv(total_activo, total_patrimonio);
   const roeVerificado = npm !== null && ato !== null && em !== null ? round(npm * ato * em) : null;
+  const cargaFinanciera = safeDiv(utilidad_operacional, utilidad_antes_impuestos);
+  const cargaFiscalEfectiva = safeDiv(impuesto_renta, utilidad_antes_impuestos);
+
+  // Verificación de coherencia: la "Utilidad del ejercicio" del Balance (patrimonio)
+  // y la "Utilidad Neta" del Estado de Resultados deberían coincidir — si difieren
+  // en más de 5%, es una señal de alerta alta (requiere reconciliación contable)
+  // antes de confiar en los indicadores derivados de cualquiera de las dos cifras.
+  let coherenciaContable: {
+    utilidad_balance: number;
+    utilidad_neta_pl: number;
+    diferencia_absoluta: number;
+    diferencia_pct: number;
+    inconsistente: boolean;
+    mensaje: string | null;
+  } | null = null;
+
+  if (utilidad_ejercicio_balance !== undefined && utilidad_neta !== undefined) {
+    const diferenciaAbsoluta = round(utilidad_ejercicio_balance - utilidad_neta);
+    const base = Math.abs(utilidad_neta) > 0.0001 ? Math.abs(utilidad_neta) : Math.abs(utilidad_ejercicio_balance);
+    const diferenciaPct = base > 0 ? round(Math.abs(diferenciaAbsoluta) / base) : 0;
+    const inconsistente = diferenciaPct > 0.05;
+    const mensaje = inconsistente
+      ? `Inconsistencia entre Utilidad del Balance ($${formatIndicatorValue(utilidad_ejercicio_balance, 'currency')}) y Utilidad Neta del Estado de Resultados ($${formatIndicatorValue(utilidad_neta, 'currency')}) — requiere reconciliación contable antes de uso externo.`
+      : null;
+
+    coherenciaContable = {
+      utilidad_balance: utilidad_ejercicio_balance,
+      utilidad_neta_pl: utilidad_neta,
+      diferencia_absoluta: diferenciaAbsoluta,
+      diferencia_pct: diferenciaPct,
+      inconsistente,
+      mensaje,
+    };
+
+    if (mensaje) warnings.unshift(mensaje);
+  }
 
   return {
     liquidez: {
@@ -274,6 +361,9 @@ export function computeFinancialResults(
       nivel_endeudamiento: safeDiv(total_pasivo, total_activo),
       endeudamiento_financiero: safeDiv(obligaciones_financieras, total_activo),
       cobertura_intereses: safeDiv(utilidad_operacional, gastos_financieros),
+      deuda_patrimonio: safeDiv(total_pasivo, total_patrimonio),
+      equity_ratio: safeDiv(total_patrimonio, total_activo),
+      deuda_lp_patrimonio: safeDiv(pasivoNoCorriente, total_patrimonio),
     },
     rentabilidad: {
       margen_bruto: safeDiv(utilidad_bruta, ventas),
@@ -287,6 +377,8 @@ export function computeFinancialResults(
       ato,
       em,
       roe_verificado: roeVerificado,
+      carga_financiera: cargaFinanciera,
+      carga_fiscal_efectiva: cargaFiscalEfectiva,
     },
     ciclo_efectivo: {
       dso,
@@ -294,6 +386,19 @@ export function computeFinancialResults(
       dpo,
       ccc,
     },
+    composicion_activos: {
+      efectivo_pct: safeDiv(efectivo_y_equivalentes, total_activo),
+      cxc_pct: safeDiv(cuentas_por_cobrar, total_activo),
+      inventarios_pct: safeDiv(inventarios, total_activo),
+      otros_ac_pct: safeDiv(otrosActivoCorriente, total_activo),
+      activo_nc_pct: safeDiv(activoNoCorriente, total_activo),
+    },
+    composicion_financiacion: {
+      pasivo_cp_pct: safeDiv(pasivo_corriente, total_activo),
+      pasivo_lp_pct: safeDiv(pasivoNoCorriente, total_activo),
+      patrimonio_pct: safeDiv(total_patrimonio, total_activo),
+    },
+    coherencia_contable: coherenciaContable,
     cuentas_detectadas: accounts,
     warnings,
   };
@@ -328,6 +433,9 @@ export const INDICATOR_SECTIONS: {
       { key: 'nivel_endeudamiento', label: 'Nivel de Endeudamiento', format: 'percent' },
       { key: 'endeudamiento_financiero', label: 'Endeudamiento Financiero', format: 'percent' },
       { key: 'cobertura_intereses', label: 'Cobertura de Intereses', format: 'ratio' },
+      { key: 'deuda_patrimonio', label: 'Deuda / Patrimonio (D/E)', format: 'ratio' },
+      { key: 'equity_ratio', label: 'Patrimonio / Activo (Equity Ratio)', format: 'percent' },
+      { key: 'deuda_lp_patrimonio', label: 'Deuda LP / Patrimonio', format: 'ratio' },
     ],
   },
   {
@@ -349,6 +457,8 @@ export const INDICATOR_SECTIONS: {
       { key: 'ato', label: 'Rotación de Activos (ATO)', format: 'ratio' },
       { key: 'em', label: 'Multiplicador de Equity (EM)', format: 'ratio' },
       { key: 'roe_verificado', label: 'ROE Verificado (NPM × ATO × EM)', format: 'percent' },
+      { key: 'carga_financiera', label: 'Carga Financiera (EBIT / EBT)', format: 'ratio' },
+      { key: 'carga_fiscal_efectiva', label: 'Carga Fiscal Efectiva', format: 'percent' },
     ],
   },
   {
@@ -412,6 +522,10 @@ const SEMAPHORE_RANGES: Partial<Record<string, SemaphoreRange>> = {
   dio: { good: 45, warning: 90, direction: 'lower-better' },
   dpo: { good: 45, warning: 30, direction: 'higher-better' },
   ccc: { good: 30, warning: 60, direction: 'lower-better' },
+  deuda_patrimonio: { good: 1, warning: 1.5, direction: 'lower-better' },
+  equity_ratio: { good: 0.5, warning: 0.3, direction: 'higher-better' },
+  deuda_lp_patrimonio: { good: 0.5, warning: 0.8, direction: 'lower-better' },
+  carga_financiera: { good: 1.3, warning: 1.6, direction: 'lower-better' },
 };
 
 export function classifyIndicator(key: string, value: number | null | undefined): SemaphoreStatus {
@@ -469,10 +583,44 @@ export type ComparativoPeriodoAnterior = {
 };
 
 /**
+ * Cuentas crudas (no ratios) que también se comparan período a período —
+ * para la "tabla resumen" tipo informe de junta (Ventas Netas, Utilidad Neta,
+ * EBIT) que mezcla montos absolutos con indicadores porcentuales/ratio.
+ */
+export const COMPARATIVO_CUENTAS_DEFS: { key: string; label: string; format: IndicatorFormat }[] = [
+  { key: 'ventas', label: 'Ventas Netas', format: 'currency' },
+  { key: 'utilidad_neta', label: 'Utilidad Neta', format: 'currency' },
+  { key: 'utilidad_operacional', label: 'EBIT', format: 'currency' },
+];
+
+function buildComparativoEntry(
+  valorActual: unknown,
+  valorAnterior: unknown,
+  format: IndicatorFormat
+): ComparativoIndicador | null {
+  if (typeof valorActual !== 'number' || typeof valorAnterior !== 'number') return null;
+  if (Number.isNaN(valorActual) || Number.isNaN(valorAnterior)) return null;
+
+  const variacionAbsoluta = round(valorActual - valorAnterior);
+  const esPercent = format === 'percent';
+
+  return {
+    valor_actual: valorActual,
+    valor_anterior: valorAnterior,
+    variacion_absoluta: variacionAbsoluta,
+    variacion_relativa_pct: esPercent || valorAnterior === 0 ? null : round((variacionAbsoluta / Math.abs(valorAnterior)) * 100),
+    variacion_puntos_porcentuales: esPercent ? round(variacionAbsoluta * 100) : null,
+  };
+}
+
+/**
  * Calcula la variación de cada indicador de `current` contra `previous`
  * (otro `results` ya calculado, típicamente el análisis publicado más
  * reciente con period_end anterior al del análisis actual). Solo incluye
  * indicadores donde ambos valores están disponibles y son numéricos.
+ * También compara un set curado de cuentas crudas (ventas, utilidad neta,
+ * EBIT) bajo la sección sintética "cuentas", para la tabla resumen tipo
+ * informe de junta.
  */
 export function computeComparativoPeriodoAnterior(
   current: any,
@@ -485,22 +633,8 @@ export function computeComparativoPeriodoAnterior(
     const sectionEntries: Record<string, ComparativoIndicador> = {};
 
     for (const item of section.items) {
-      const valorActual = current?.[section.key]?.[item.key];
-      const valorAnterior = previous?.[section.key]?.[item.key];
-
-      if (typeof valorActual !== 'number' || typeof valorAnterior !== 'number') continue;
-      if (Number.isNaN(valorActual) || Number.isNaN(valorAnterior)) continue;
-
-      const variacionAbsoluta = round(valorActual - valorAnterior);
-      const esPercent = item.format === 'percent';
-
-      sectionEntries[item.key] = {
-        valor_actual: valorActual,
-        valor_anterior: valorAnterior,
-        variacion_absoluta: variacionAbsoluta,
-        variacion_relativa_pct: esPercent || valorAnterior === 0 ? null : round((variacionAbsoluta / Math.abs(valorAnterior)) * 100),
-        variacion_puntos_porcentuales: esPercent ? round(variacionAbsoluta * 100) : null,
-      };
+      const entry = buildComparativoEntry(current?.[section.key]?.[item.key], previous?.[section.key]?.[item.key], item.format);
+      if (entry) sectionEntries[item.key] = entry;
     }
 
     if (Object.keys(sectionEntries).length > 0) {
@@ -508,5 +642,110 @@ export function computeComparativoPeriodoAnterior(
     }
   }
 
+  const cuentaEntries: Record<string, ComparativoIndicador> = {};
+  for (const def of COMPARATIVO_CUENTAS_DEFS) {
+    const entry = buildComparativoEntry(
+      current?.cuentas_detectadas?.[def.key],
+      previous?.cuentas_detectadas?.[def.key],
+      def.format
+    );
+    if (entry) cuentaEntries[def.key] = entry;
+  }
+  if (Object.keys(cuentaEntries).length > 0) {
+    indicadores.cuentas = cuentaEntries;
+  }
+
   return { period_end_base: previousPeriodEnd, indicadores };
+}
+
+// ================================================================
+// Tendencia / lectura cualitativa — deterministas (no dependen de IA),
+// usadas para la "tabla resumen" y el "mapa de riesgos" de la vista de
+// detalle y del PDF exportado.
+// ================================================================
+
+export type Tendencia = 'mejora' | 'estable' | 'deterioro';
+
+/** Dirección de la variación de un indicador según si "más alto es mejor" o "más bajo es mejor". */
+export function getTendencia(key: string, variacionAbsoluta: number | null | undefined): Tendencia {
+  if (variacionAbsoluta === null || variacionAbsoluta === undefined || variacionAbsoluta === 0) return 'estable';
+  const range = SEMAPHORE_RANGES[key];
+  if (!range) return variacionAbsoluta > 0 ? 'mejora' : 'deterioro';
+  const isImproving = range.direction === 'higher-better' ? variacionAbsoluta > 0 : variacionAbsoluta < 0;
+  return isImproving ? 'mejora' : 'deterioro';
+}
+
+/** Lectura corta (una palabra/frase) combinando semáforo + tendencia — para columnas "Lectura"/"Señal". */
+export function getLecturaCualitativa(status: SemaphoreStatus, tendencia: Tendencia): string {
+  if (status === 'unknown') return 'N/D';
+  if (status === 'critical') return 'Crítico';
+  if (status === 'good') {
+    if (tendencia === 'deterioro') return 'Atención';
+    if (tendencia === 'mejora') return 'Excelente';
+    return 'Sólido';
+  }
+  // warning
+  if (tendencia === 'mejora') return 'Mejorando';
+  if (tendencia === 'deterioro') return 'Deterioro';
+  return 'Vigilar';
+}
+
+export type RiskMapRow = { indicador: string; nivel: 'verde' | 'amarillo' | 'rojo'; tendencia: string; señal: string };
+
+const STATUS_TO_NIVEL: Record<SemaphoreStatus, 'verde' | 'amarillo' | 'rojo'> = {
+  good: 'verde',
+  warning: 'amarillo',
+  critical: 'rojo',
+  unknown: 'amarillo',
+};
+
+/**
+ * Mapa de riesgos determinista (no depende de la narrativa IA) — mismas
+ * filas que un "Mapa de Riesgos y Semaforización Gerencial" de un informe
+ * de junta: liquidez, solvencia, márgenes, ROE/ROA, cobertura, inventarios
+ * y consistencia contable Balance vs Estado de Resultados.
+ */
+export function buildRiskMap(results: any): RiskMapRow[] {
+  const comparativo: ComparativoPeriodoAnterior | null = results?.comparativo_periodo_anterior ?? null;
+
+  function tendenciaTexto(section: string, key: string): string {
+    const entry = (comparativo?.indicadores as any)?.[section]?.[key];
+    if (!entry) return '—';
+    const t = getTendencia(key, entry.variacion_absoluta);
+    return t === 'mejora' ? '↑ Mejora' : t === 'deterioro' ? '↓ Deterioro' : '→ Estable';
+  }
+
+  function row(indicador: string, section: string, key: string): RiskMapRow {
+    const value = results?.[section]?.[key];
+    const status = classifyIndicator(key, value);
+    const entry = (comparativo?.indicadores as any)?.[section]?.[key];
+    const tendencia = entry ? getTendencia(key, entry.variacion_absoluta) : 'estable';
+    return {
+      indicador,
+      nivel: STATUS_TO_NIVEL[status],
+      tendencia: tendenciaTexto(section, key),
+      señal: getLecturaCualitativa(status, tendencia),
+    };
+  }
+
+  const rows: RiskMapRow[] = [
+    row('Liquidez (Razón Corriente)', 'liquidez', 'razon_corriente'),
+    row('Solvencia (Deuda/Patrimonio)', 'endeudamiento', 'deuda_patrimonio'),
+    row('Margen Neto', 'rentabilidad', 'margen_neto'),
+    row('ROE', 'rentabilidad', 'roe'),
+    row('Cobertura de Intereses', 'endeudamiento', 'cobertura_intereses'),
+    row('Ciclo de Inventario (DIO)', 'ciclo_efectivo', 'dio'),
+  ];
+
+  const coherencia = results?.coherencia_contable;
+  if (coherencia) {
+    rows.push({
+      indicador: 'Consistencia Utilidad Balance vs Estado de Resultados',
+      nivel: coherencia.inconsistente ? 'amarillo' : 'verde',
+      tendencia: '—',
+      señal: coherencia.inconsistente ? 'Revisar' : 'Consistente',
+    });
+  }
+
+  return rows;
 }
