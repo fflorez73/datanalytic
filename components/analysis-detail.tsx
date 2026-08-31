@@ -8,18 +8,18 @@ import type { FinancialNarrative } from '@/lib/generate-narrative';
 import { IndicatorTargetChart } from '@/components/charts/indicator-target-chart';
 import { IndicatorTrendChart } from '@/components/charts/indicator-trend-chart';
 
-const TENDENCIA_STYLES: Record<string, string> = {
-  positiva: 'bg-green-50 text-green-700 border-green-200',
-  estable: 'bg-blue-50 text-blue-700 border-blue-200',
-  negativa: 'bg-red-50 text-red-700 border-red-200',
-  sin_datos_suficientes: 'bg-slate-100 text-slate-500 border-slate-200',
+const DICTAMEN_STYLES: Record<string, string> = {
+  favorable: 'bg-green-50 text-green-700 border-green-200',
+  favorable_con_observaciones: 'bg-blue-50 text-blue-700 border-blue-200',
+  requiere_atencion: 'bg-amber-50 text-amber-700 border-amber-200',
+  critico: 'bg-red-50 text-red-700 border-red-200',
 };
 
-const TENDENCIA_LABEL: Record<string, string> = {
-  positiva: 'Tendencia positiva',
-  estable: 'Tendencia estable',
-  negativa: 'Tendencia negativa',
-  sin_datos_suficientes: 'Datos insuficientes',
+const DICTAMEN_LABEL: Record<string, string> = {
+  favorable: 'Dictamen favorable',
+  favorable_con_observaciones: 'Favorable con observaciones',
+  requiere_atencion: 'Requiere atención',
+  critico: 'Crítico',
 };
 
 const SEMAPHORE_DOT: Record<SemaphoreStatus, string> = {
@@ -36,9 +36,27 @@ const SEMAPHORE_BADGE: Record<SemaphoreStatus, string> = {
   unknown: 'bg-slate-100 text-slate-400',
 };
 
-function TendenciaBadge({ tendencia }: { tendencia: string }) {
-  const style = TENDENCIA_STYLES[tendencia] || TENDENCIA_STYLES.sin_datos_suficientes;
-  const label = TENDENCIA_LABEL[tendencia] || TENDENCIA_LABEL.sin_datos_suficientes;
+const RIESGO_NIVEL_DOT: Record<string, string> = {
+  verde: 'bg-green-500',
+  amarillo: 'bg-amber-500',
+  rojo: 'bg-red-500',
+};
+
+const RIESGO_NIVEL_BORDER: Record<string, string> = {
+  verde: 'border-green-200 bg-green-50',
+  amarillo: 'border-amber-200 bg-amber-50',
+  rojo: 'border-red-200 bg-red-50',
+};
+
+const TENDENCIA_ICON: Record<string, string> = {
+  mejora: '↑ mejora',
+  estable: '→ estable',
+  deterioro: '↓ deterioro',
+};
+
+function DictamenBadge({ dictamen }: { dictamen: string }) {
+  const style = DICTAMEN_STYLES[dictamen] || DICTAMEN_STYLES.favorable_con_observaciones;
+  const label = DICTAMEN_LABEL[dictamen] || dictamen;
   return (
     <span className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold ${style}`}>
       {label}
@@ -68,7 +86,9 @@ export function AnalysisDetail({
   history?: { periodLabel: string; results: unknown }[];
 }) {
   const resultsObj = (results && typeof results === 'object' ? results : {}) as Record<string, any>;
-  const hasIndicators = Boolean(resultsObj.liquidez || resultsObj.endeudamiento || resultsObj.rentabilidad);
+  const hasIndicators = Boolean(
+    resultsObj.liquidez || resultsObj.endeudamiento || resultsObj.rentabilidad || resultsObj.dupont || resultsObj.ciclo_efectivo
+  );
   const calcWarnings: string[] = Array.isArray(resultsObj.warnings) ? resultsObj.warnings : [];
 
   return (
@@ -112,23 +132,41 @@ export function AnalysisDetail({
           <section className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <h2 className="text-lg font-semibold text-slate-900">Resumen Ejecutivo</h2>
-              <TendenciaBadge tendencia={narrative.tendencia} />
+              <DictamenBadge dictamen={narrative.dictamen} />
             </div>
             <p className="mt-4 text-base leading-relaxed text-slate-700">{narrative.resumen_ejecutivo}</p>
           </section>
 
-          {narrative.alertas.length > 0 && (
-            <section className="rounded-xl border border-red-200 bg-red-50 p-6">
-              <h2 className="mb-3 text-base font-semibold text-red-800">⚠ Alertas</h2>
-              <ul className="list-disc space-y-1.5 pl-5 text-sm text-red-700">
-                {narrative.alertas.map((a, i) => (
-                  <li key={i}>{a}</li>
+          {narrative.hallazgos_clave?.length > 0 && (
+            <section className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+              <h2 className="mb-3 text-base font-semibold text-slate-900">Hallazgos Clave</h2>
+              <ul className="list-disc space-y-1.5 pl-5 text-sm text-slate-700">
+                {narrative.hallazgos_clave.map((h, i) => (
+                  <li key={i}>{h}</li>
                 ))}
               </ul>
             </section>
           )}
 
-          {narrative.observaciones.length > 0 && (
+          {narrative.riesgos?.length > 0 && (
+            <section className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+              <h2 className="mb-3 text-base font-semibold text-slate-900">Riesgos</h2>
+              <ul className="space-y-2">
+                {narrative.riesgos.map((r, i) => (
+                  <li
+                    key={i}
+                    className={`flex items-start gap-3 rounded-lg border px-4 py-2.5 text-sm ${RIESGO_NIVEL_BORDER[r.nivel] || 'border-slate-200 bg-slate-50'}`}
+                  >
+                    <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${RIESGO_NIVEL_DOT[r.nivel] || 'bg-slate-300'}`} aria-hidden />
+                    <span className="flex-1 text-slate-700">{r.descripcion}</span>
+                    <span className="shrink-0 text-xs font-medium text-slate-400">{TENDENCIA_ICON[r.tendencia] || r.tendencia}</span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+
+          {narrative.observaciones?.length > 0 && (
             <section className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
               <h2 className="mb-3 text-base font-semibold text-slate-900">Observaciones</h2>
               <ul className="list-disc space-y-1.5 pl-5 text-sm text-slate-700">
@@ -136,6 +174,32 @@ export function AnalysisDetail({
                   <li key={i}>{o}</li>
                 ))}
               </ul>
+            </section>
+          )}
+
+          {narrative.recomendaciones?.length > 0 && (
+            <section className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+              <h2 className="mb-3 text-base font-semibold text-slate-900">Recomendaciones</h2>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-400">
+                      <th className="pb-2 pr-4 font-medium">Acción</th>
+                      <th className="pb-2 pr-4 font-medium">Responsable</th>
+                      <th className="pb-2 font-medium">Horizonte</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {narrative.recomendaciones.map((r, i) => (
+                      <tr key={i}>
+                        <td className="py-2.5 pr-4 text-slate-700">{r.accion}</td>
+                        <td className="py-2.5 pr-4 text-slate-500">{r.responsable_sugerido}</td>
+                        <td className="py-2.5 text-slate-500">{r.horizonte}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </section>
           )}
         </>
@@ -218,11 +282,11 @@ export function AnalysisDetail({
         </section>
       )}
 
-      {/* ── Recomendación ── */}
-      {narrative?.recomendacion && (
+      {/* ── Conclusión ── */}
+      {narrative?.conclusion && (
         <section className="rounded-xl border border-slate-900 bg-slate-900 p-6 text-white shadow-sm sm:p-8">
-          <h2 className="mb-2 text-base font-semibold">Recomendación</h2>
-          <p className="text-sm leading-relaxed text-slate-100">{narrative.recomendacion}</p>
+          <h2 className="mb-2 text-base font-semibold">Conclusión</h2>
+          <p className="text-sm leading-relaxed text-slate-100">{narrative.conclusion}</p>
         </section>
       )}
     </div>

@@ -4,7 +4,11 @@ import { revalidatePath } from 'next/cache';
 import ExcelJS from 'exceljs';
 import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
-import { computeFinancialResults, FINANCIAL_ANALYSIS_TYPE_CODES } from '@/lib/financial-indicators';
+import {
+  computeComparativoPeriodoAnterior,
+  computeFinancialResults,
+  FINANCIAL_ANALYSIS_TYPE_CODES,
+} from '@/lib/financial-indicators';
 import { generateNarrative, type FinancialNarrative } from '@/lib/generate-narrative';
 
 export type ActionState = { error?: string; success?: boolean };
@@ -12,7 +16,7 @@ export type ActionState = { error?: string; success?: boolean };
 /** true si al menos un indicador de alguna sección quedó con valor (no null/undefined). */
 function hasAnyIndicator(results: any): boolean {
   if (!results || typeof results !== 'object') return false;
-  return ['liquidez', 'endeudamiento', 'rentabilidad'].some((sectionKey) => {
+  return ['liquidez', 'endeudamiento', 'rentabilidad', 'dupont', 'ciclo_efectivo'].some((sectionKey) => {
     const section = results[sectionKey];
     return section && Object.values(section).some((v) => v !== null && v !== undefined);
   });
@@ -270,7 +274,29 @@ export async function createAnalysis(_prevState: ActionState, formData: FormData
       (FINANCIAL_ANALYSIS_TYPE_CODES as readonly string[]).includes(analysisType.code) &&
       Array.isArray(sourceData.rows)
     ) {
-      results = computeFinancialResults(sourceData.rows);
+      results = computeFinancialResults(sourceData.rows, { periodStart, periodEnd });
+
+      // Comparativo automático contra el análisis publicado más reciente de
+      // la misma empresa y mismo tipo, con period_end anterior al de este.
+      const { data: previousAnalysis } = await admin
+        .from('analyses')
+        .select('period_end, results')
+        .eq('company_id', companyId)
+        .eq('analysis_type_id', analysisTypeId)
+        .eq('status', 'published')
+        .is('deleted_at', null)
+        .lt('period_end', periodEnd)
+        .order('period_end', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (previousAnalysis?.results && typeof previousAnalysis.results === 'object') {
+        results.comparativo_periodo_anterior = computeComparativoPeriodoAnterior(
+          results,
+          previousAnalysis.results,
+          previousAnalysis.period_end
+        );
+      }
 
       if (hasAnyIndicator(results) && companyRow?.name) {
         narrative = await generateNarrative({
