@@ -18,6 +18,11 @@ export async function middleware(request: NextRequest) {
       db: {
         schema: 'analytics',
       },
+      global: {
+        // Evita que Next.js cachee el fetch de PostgREST — cada request
+        // debe leer el role real, no una respuesta cacheada de otro usuario.
+        fetch: (input, init) => fetch(input, { ...init, cache: 'no-store' }),
+      },
       cookies: {
         get(name: string) {
           return request.cookies.get(name)?.value;
@@ -60,13 +65,21 @@ export async function middleware(request: NextRequest) {
   }
 
   // Con sesión — leer role desde analytics.profiles
-  const { data: profile } = await supabase
+  const { data: profile, error: profileError } = await supabase
     .from('profiles')
     .select('role')
     .eq('id', user.id)
     .single();
 
-  const role = profile?.role ?? 'client';
+  if (profileError) {
+    // Si esto se dispara en logs, la causa más común es que el schema
+    // "analytics" no está en Database Settings → API → Exposed schemas
+    // de Supabase (por defecto solo "public" está expuesto a PostgREST),
+    // o que falta una policy RLS que permita al usuario leer su propia fila.
+    console.error('[MIDDLEWARE] Error leyendo analytics.profiles.role:', profileError.message, '| user:', user.id);
+  }
+
+  const role = String(profile?.role ?? '').trim().toLowerCase();
   const home = role === 'super_admin' ? SUPER_ADMIN_HOME : CLIENT_HOME;
 
   // Logueado y en /login — mandar a su panel
