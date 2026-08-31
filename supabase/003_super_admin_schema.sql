@@ -24,11 +24,14 @@ create table if not exists analytics.companies (
   nit        text,
   sector     text,
   size       text not null check (size in ('micro', 'pequena', 'mediana', 'grande', 'corporativa')),
+  logo_url   text,
   active     boolean not null default true,
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
 );
 
 -- ── Perfiles: agregar relación a empresa y nombre completo ──
+-- (la migración 001 ya incluye también una columna "active" boolean)
 alter table analytics.profiles
   add column if not exists full_name text,
   add column if not exists company_id uuid references analytics.companies(id);
@@ -42,6 +45,10 @@ create table if not exists analytics.analysis_types (
 );
 
 -- ── Análisis ──────────────────────────────────────────────
+-- NOTA: la tabla real (migración 001) NO tiene columna published_at —
+-- el estado "publicado" se rastrea únicamente con status='published'
+-- (+ updated_at). El código de la app (actions.ts) ya está alineado
+-- con esto; no agregar published_at de vuelta.
 create table if not exists analytics.analyses (
   id               uuid primary key default gen_random_uuid(),
   company_id       uuid not null references analytics.companies(id),
@@ -51,10 +58,11 @@ create table if not exists analytics.analyses (
   period_end       date not null,
   source_data      jsonb not null default '{}'::jsonb,
   results          jsonb not null default '{}'::jsonb,
+  narrative        text,
   status           text not null default 'draft' check (status in ('draft', 'published')),
   created_by       uuid references auth.users(id),
   created_at       timestamptz not null default now(),
-  published_at     timestamptz,
+  updated_at       timestamptz not null default now(),
   deleted_at       timestamptz
 );
 

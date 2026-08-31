@@ -17,15 +17,14 @@ export default async function ClientDashboardPage() {
     .eq('id', user.id)
     .single();
 
-  // La tabla analytics.analyses aún no existe — se maneja de forma tolerante
-  // hasta que se implemente el motor de análisis.
   const { data: analyses } = profile?.company_id
     ? await supabase
         .from('analyses')
-        .select('id, title, period, published_at')
+        .select('id, title, period_start, period_end')
         .eq('company_id', profile.company_id)
-        .not('published_at', 'is', null)
-        .order('published_at', { ascending: false })
+        .eq('status', 'published')
+        .is('deleted_at', null)
+        .order('period_end', { ascending: false })
     : { data: null };
 
   return (
@@ -52,7 +51,9 @@ export default async function ClientDashboardPage() {
               {analyses.map((a) => (
                 <li key={a.id} className="flex items-center justify-between py-2 text-sm">
                   <span className="text-slate-800">{a.title}</span>
-                  <span className="text-slate-400">{a.period}</span>
+                  <span className="text-slate-400">
+                    {a.period_start} — {a.period_end}
+                  </span>
                 </li>
               ))}
             </ul>

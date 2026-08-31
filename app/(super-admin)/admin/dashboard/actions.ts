@@ -245,9 +245,11 @@ export async function publishAnalysis(analysisId: string, companyId: string) {
   await requireSuperAdmin();
 
   const admin = createAdminClient();
+  // analytics.analyses (migración 001) no tiene columna published_at —
+  // solo status + updated_at (este último manejado por la propia tabla).
   const { error, status, statusText } = await admin
     .from('analyses')
-    .update({ status: 'published', published_at: new Date().toISOString() })
+    .update({ status: 'published' })
     .eq('id', analysisId);
 
   if (error) {
