@@ -12,12 +12,13 @@ export function DownloadPdfButton({ analysisId, fileName }: { analysisId: string
     try {
       const response = await fetch(`/api/analyses/${analysisId}/pdf`);
       if (!response.ok) {
-        // El servidor ya logueó el error real (mensaje + stack) — aquí solo
-        // recuperamos el mensaje corto que expone la API para no tragarlo
-        // en un texto genérico sin pista de la causa.
+        // El servidor ya logueó el error real (mensaje + stack), pero en
+        // Vercel el log de runtime no siempre es accesible de inmediato —
+        // "detail" trae el mensaje real de la excepción hasta el navegador
+        // para poder diagnosticar sin depender de los logs de la plataforma.
         const body = await response.json().catch(() => null);
         console.error('[PDF] Fallo al descargar:', response.status, body);
-        throw new Error(body?.error || `No se pudo generar el PDF (HTTP ${response.status}).`);
+        throw new Error(body?.detail || body?.error || `No se pudo generar el PDF (HTTP ${response.status}).`);
       }
 
       const blob = await response.blob();

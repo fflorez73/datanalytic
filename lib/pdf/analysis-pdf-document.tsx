@@ -421,8 +421,15 @@ export function AnalysisPdfDocument({
     return section.items.map((item) => ({ ...item, value: (resultsObj[section.key]?.[item.key] ?? null) as number | null }));
   }
 
+  // Debe devolver undefined (no '') cuando no hay texto — "" && <Text>...</Text>
+  // evalúa a "" (string vacío truthy-falsy ambiguo), y @react-pdf/renderer
+  // exige que todo string hijo esté envuelto en <Text>: un "" suelto como
+  // hijo directo de <View>/<Page> es "Invalid '' string child outside <Text>
+  // component". Con undefined, `undefined && <Text>` es undefined y React
+  // lo ignora limpiamente.
   function findSeccion(tituloBuscado: string): string | undefined {
-    return narrative?.secciones?.find((s) => s.titulo === tituloBuscado)?.analisis;
+    const analisis = narrative?.secciones?.find((s) => s.titulo === tituloBuscado)?.analisis;
+    return analisis ? analisis : undefined;
   }
 
   const activosPieData = resultsObj.composicion_activos
@@ -514,7 +521,9 @@ export function AnalysisPdfDocument({
           </View>
         )}
 
-        {narrative?.resumen_ejecutivo && <Text style={[styles.paragraph, { marginBottom: 14 }]}>{narrative.resumen_ejecutivo}</Text>}
+        {narrative && narrative.resumen_ejecutivo.length > 0 && (
+          <Text style={[styles.paragraph, { marginBottom: 14 }]}>{narrative.resumen_ejecutivo}</Text>
+        )}
 
         {narrative && narrative.hallazgos_clave?.length > 0 && (
           <View style={[styles.section, { marginTop: 6 }]}>
@@ -724,7 +733,7 @@ export function AnalysisPdfDocument({
       )}
 
       {/* ── Conclusión y dictamen final ── */}
-      {narrative?.conclusion && (
+      {narrative && narrative.conclusion.length > 0 && (
         <Page size="A4" style={styles.page}>
           {chrome}
           <Text style={styles.h1}>Conclusión Ejecutiva y Dictamen Gerencial</Text>

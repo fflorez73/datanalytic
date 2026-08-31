@@ -15,43 +15,51 @@ function sanitizeFileName(name: string): string {
 }
 
 export async function GET(_request: Request, { params }: { params: { id: string } }) {
-  const supabase = createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) return NextResponse.json({ error: 'No autenticado.' }, { status: 401 });
-
-  const { data: profile } = await supabase.from('profiles').select('role, company_id').eq('id', user.id).single();
-  if (!profile) return NextResponse.json({ error: 'Perfil no encontrado.' }, { status: 403 });
-
-  let analysis: any = null;
-
-  if (profile.role === 'super_admin') {
-    const admin = createAdminClient();
-    const { data } = await admin.from('analyses').select(ANALYSIS_SELECT).eq('id', params.id).is('deleted_at', null).single();
-    analysis = data;
-  } else {
-    if (!profile.company_id) return NextResponse.json({ error: 'No autorizado.' }, { status: 403 });
-    const { data } = await supabase
-      .from('analyses')
-      .select(ANALYSIS_SELECT)
-      .eq('id', params.id)
-      .eq('company_id', profile.company_id)
-      .eq('status', 'published')
-      .is('deleted_at', null)
-      .single();
-    analysis = data;
-  }
-
-  if (!analysis) return NextResponse.json({ error: 'Análisis no encontrado.' }, { status: 404 });
-
-  const companyName = analysis.companies?.name || '—';
-  const analysisTypeName = analysis.analysis_types?.name || '—';
-  const generatedAt = new Date().toLocaleDateString('es-CO', { day: 'numeric', month: 'long', year: 'numeric' });
-
+  // Todo el handler queda envuelto en un único try/catch — antes solo el
+  // renderToBuffer estaba protegido. createAdminClient() (lanza si falta
+  // SUPABASE_SERVICE_ROLE_KEY) y las consultas a Supabase quedaban fuera:
+  // cualquier excepción ahí producía la página de error genérica de
+  // Next.js/Vercel, sin el log detallado que sí teníamos para el render —
+  // exactamente el tipo de fallo que es imposible de diagnosticar solo con
+  // las métricas resumidas de Vercel. Ahora cualquier excepción, sea cual
+  // sea su origen, queda logueada con mensaje+stack antes de responder.
   try {
+    const supabase = createClient();
+
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) return NextResponse.json({ error: 'No autenticado.' }, { status: 401 });
+
+    const { data: profile } = await supabase.from('profiles').select('role, company_id').eq('id', user.id).single();
+    if (!profile) return NextResponse.json({ error: 'Perfil no encontrado.' }, { status: 403 });
+
+    let analysis: any = null;
+
+    if (profile.role === 'super_admin') {
+      const admin = createAdminClient();
+      const { data } = await admin.from('analyses').select(ANALYSIS_SELECT).eq('id', params.id).is('deleted_at', null).single();
+      analysis = data;
+    } else {
+      if (!profile.company_id) return NextResponse.json({ error: 'No autorizado.' }, { status: 403 });
+      const { data } = await supabase
+        .from('analyses')
+        .select(ANALYSIS_SELECT)
+        .eq('id', params.id)
+        .eq('company_id', profile.company_id)
+        .eq('status', 'published')
+        .is('deleted_at', null)
+        .single();
+      analysis = data;
+    }
+
+    if (!analysis) return NextResponse.json({ error: 'Análisis no encontrado.' }, { status: 404 });
+
+    const companyName = analysis.companies?.name || '—';
+    const analysisTypeName = analysis.analysis_types?.name || '—';
+    const generatedAt = new Date().toLocaleDateString('es-CO', { day: 'numeric', month: 'long', year: 'numeric' });
+
     const buffer = await renderToBuffer(
       AnalysisPdfDocument({
         companyName,
@@ -74,9 +82,16 @@ export async function GET(_request: Request, { params }: { params: { id: string 
     });
   } catch (e: any) {
     // No tragar el error — @react-pdf/renderer lanza excepciones específicas
-    // (p.ej. estilos inválidos, valores no numéricos en un Svg/View) que un
-    // catch genérico en el cliente no puede diagnosticar sin este log.
-    console.error('[PDF] Error generando PDF:', { analysisId: params.id, message: e?.message, stack: e?.stack });
-    return NextResponse.json({ error: 'No se pudo generar el PDF.' }, { status: 500 });
+    // (p.ej. estilos inválidos, valores no numéricos en un Svg/View), y
+    // createAdminClient()/las consultas a Supabase también pueden lanzar
+    // (p.ej. env var faltante) — un catch genérico en el cliente no puede
+    // diagnosticar ninguno de los dos sin este log.
+    console.error('[PDF] Error generando PDF:', {
+      analysisId: params.id,
+      name: e?.name,
+      message: e?.message,
+      stack: e?.stack,
+    });
+    return NextResponse.json({ error: 'No se pudo generar el PDF.', detail: e?.message ?? String(e) }, { status: 500 });
   }
 }
