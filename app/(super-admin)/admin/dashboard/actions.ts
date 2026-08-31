@@ -9,6 +9,21 @@ export type ActionState = { error?: string; success?: boolean };
 
 const COMPANY_SIZES = ['micro', 'pequena', 'mediana', 'grande', 'corporativa'] as const;
 
+/**
+ * Loguea el error de Postgres/PostgREST completo (message, code, details, hint),
+ * no solo error.message — code === '42501' es permiso denegado (falta GRANT),
+ * code === '42P01' es que la tabla/schema no existe o no está expuesto a PostgREST.
+ */
+function logSupabaseError(scope: string, error: any, context?: Record<string, unknown>) {
+  console.error(`[${scope}] Supabase error:`, {
+    message: error?.message,
+    code: error?.code,
+    details: error?.details,
+    hint: error?.hint,
+    ...context,
+  });
+}
+
 async function requireSuperAdmin() {
   const supabase = createClient();
   const {
@@ -48,7 +63,10 @@ export async function createCompany(_prevState: ActionState, formData: FormData)
 
     const admin = createAdminClient();
     const { error } = await admin.from('companies').insert({ name, nit, sector, size });
-    if (error) return { error: `No se pudo crear la empresa: ${error.message}` };
+    if (error) {
+      logSupabaseError('CREATE_COMPANY', error, { name });
+      return { error: `No se pudo crear la empresa: ${error.message}` };
+    }
 
     revalidatePath('/admin/dashboard');
     return { success: true };
@@ -62,7 +80,10 @@ export async function toggleCompanyActive(companyId: string, active: boolean) {
 
   const admin = createAdminClient();
   const { error } = await admin.from('companies').update({ active }).eq('id', companyId);
-  if (error) throw new Error(error.message);
+  if (error) {
+    logSupabaseError('TOGGLE_COMPANY_ACTIVE', error, { companyId, active });
+    throw new Error(error.message);
+  }
 
   revalidatePath('/admin/dashboard');
   revalidatePath(`/admin/dashboard/companies/${companyId}`);
@@ -94,6 +115,7 @@ export async function createCompanyUser(_prevState: ActionState, formData: FormD
     });
 
     if (createError || !created?.user) {
+      if (createError) logSupabaseError('CREATE_COMPANY_USER_AUTH', createError, { email, companyId });
       return { error: `No se pudo crear el usuario: ${createError?.message || 'error desconocido'}` };
     }
 
@@ -103,6 +125,7 @@ export async function createCompanyUser(_prevState: ActionState, formData: FormD
       .eq('id', created.user.id);
 
     if (profileError) {
+      logSupabaseError('CREATE_COMPANY_USER_PROFILE', profileError, { userId: created.user.id, companyId });
       return { error: `Usuario creado, pero no se pudo asignar su perfil: ${profileError.message}` };
     }
 
@@ -202,7 +225,10 @@ export async function createAnalysis(_prevState: ActionState, formData: FormData
       created_by: user.id,
     });
 
-    if (error) return { error: `No se pudo crear el análisis: ${error.message}` };
+    if (error) {
+      logSupabaseError('CREATE_ANALYSIS', error, { companyId, analysisTypeId });
+      return { error: `No se pudo crear el análisis: ${error.message}` };
+    }
 
     revalidatePath(`/admin/dashboard/companies/${companyId}`);
     revalidatePath('/admin/dashboard');
@@ -216,12 +242,15 @@ export async function publishAnalysis(analysisId: string, companyId: string) {
   await requireSuperAdmin();
 
   const admin = createAdminClient();
-  const { error } = await admin
+  const { error, status, statusText } = await admin
     .from('analyses')
     .update({ status: 'published', published_at: new Date().toISOString() })
     .eq('id', analysisId);
 
-  if (error) throw new Error(error.message);
+  if (error) {
+    logSupabaseError('PUBLISH_ANALYSIS', error, { analysisId, companyId, httpStatus: status, statusText });
+    throw new Error(`No se pudo publicar el análisis: ${error.message}`);
+  }
 
   revalidatePath(`/admin/dashboard/companies/${companyId}`);
   revalidatePath('/admin/dashboard');
@@ -231,12 +260,15 @@ export async function deleteAnalysis(analysisId: string, companyId: string) {
   await requireSuperAdmin();
 
   const admin = createAdminClient();
-  const { error } = await admin
+  const { error, status, statusText } = await admin
     .from('analyses')
     .update({ deleted_at: new Date().toISOString() })
     .eq('id', analysisId);
 
-  if (error) throw new Error(error.message);
+  if (error) {
+    logSupabaseError('DELETE_ANALYSIS', error, { analysisId, companyId, httpStatus: status, statusText });
+    throw new Error(`No se pudo eliminar el análisis: ${error.message}`);
+  }
 
   revalidatePath(`/admin/dashboard/companies/${companyId}`);
   revalidatePath('/admin/dashboard');
