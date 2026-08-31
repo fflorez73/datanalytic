@@ -93,7 +93,9 @@ function parseNumericCell(raw: unknown): number | null {
 
 /** Convierte una fila cruda { columna: valor } en { label, value } — sin asumir nombres de columna fijos. */
 function normalizeRow(row: Record<string, unknown>): { label: string; value: number | null } {
-  const entries = Object.entries(row);
+  // "sheet" es metadata (de qué hoja vino la fila), no una cuenta ni un valor —
+  // se excluye para que no contamine el label ni se confunda con una celda numérica.
+  const entries = Object.entries(row).filter(([key]) => key !== 'sheet');
 
   let value: number | null = null;
   let valueKey: string | null = null;

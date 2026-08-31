@@ -5,8 +5,18 @@ import ExcelJS from 'exceljs';
 import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { computeFinancialResults, FINANCIAL_ANALYSIS_TYPE_CODES } from '@/lib/financial-indicators';
+import { generateNarrative, type FinancialNarrative } from '@/lib/generate-narrative';
 
 export type ActionState = { error?: string; success?: boolean };
+
+/** true si al menos un indicador de alguna sección quedó con valor (no null/undefined). */
+function hasAnyIndicator(results: any): boolean {
+  if (!results || typeof results !== 'object') return false;
+  return ['liquidez', 'endeudamiento', 'rentabilidad'].some((sectionKey) => {
+    const section = results[sectionKey];
+    return section && Object.values(section).some((v) => v !== null && v !== undefined);
+  });
+}
 
 const COMPANY_SIZES = ['micro', 'pequena', 'mediana', 'grande', 'corporativa'] as const;
 
@@ -144,14 +154,14 @@ export async function createCompanyUser(_prevState: ActionState, formData: FormD
 // ANÁLISIS
 // ================================================================
 
-function parseCsv(text: string) {
+function parseCsv(text: string, sheetLabel: string) {
   const lines = text.split(/\r?\n/).filter((l) => l.trim().length > 0);
   if (lines.length === 0) return { rows: [] as Record<string, unknown>[] };
 
   const headers = lines[0].split(',').map((h) => h.trim());
   const rows = lines.slice(1).map((line) => {
     const values = line.split(',');
-    const record: Record<string, unknown> = {};
+    const record: Record<string, unknown> = { sheet: sheetLabel };
     headers.forEach((header, i) => {
       record[header || `col_${i + 1}`] = values[i]?.trim() ?? null;
     });
@@ -179,13 +189,15 @@ async function parseSpreadsheet(file: File) {
   const name = file.name.toLowerCase();
 
   if (name.endsWith('.csv')) {
-    return { fileName: file.name, ...parseCsv(buffer.toString('utf-8')) };
+    return { fileName: file.name, ...parseCsv(buffer.toString('utf-8'), file.name) };
   }
 
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.load(buffer as unknown as ArrayBuffer);
-  const sheet = workbook.worksheets[0];
-  if (!sheet) return { fileName: file.name, sheet: null, rows: [] as Record<string, unknown>[] };
+
+  if (workbook.worksheets.length === 0) {
+    return { fileName: file.name, sheets: [] as string[], rows: [] as Record<string, unknown>[] };
+  }
 
   // No asumimos que la fila 1 es el encabezado — los reportes financieros
   // reales suelen traer título/subtítulo/notas antes de la tabla de datos,
@@ -193,17 +205,26 @@ async function parseSpreadsheet(file: File) {
   // genéricas por posición (col_1, col_2, ...); el motor de indicadores
   // identifica cuentas por el contenido de cada fila, no por el nombre
   // de columna, así que esto no afecta el matching.
+  //
+  // Recorremos TODAS las hojas (un Excel financiero típico trae Balance
+  // General, Estado de Resultados, Flujo de Caja, etc. en hojas separadas)
+  // y etiquetamos cada fila con su hoja de origen para trazabilidad.
   const rows: Record<string, unknown>[] = [];
-  sheet.eachRow((row) => {
-    const values = (row.values as unknown[]).slice(1);
-    const record: Record<string, unknown> = {};
-    values.forEach((raw, i) => {
-      record[`col_${i + 1}`] = excelCellToPlain(raw) ?? null;
-    });
-    rows.push(record);
-  });
+  const sheetNames: string[] = [];
 
-  return { fileName: file.name, sheet: sheet.name, rows };
+  for (const sheet of workbook.worksheets) {
+    sheetNames.push(sheet.name);
+    sheet.eachRow((row) => {
+      const values = (row.values as unknown[]).slice(1);
+      const record: Record<string, unknown> = { sheet: sheet.name };
+      values.forEach((raw, i) => {
+        record[`col_${i + 1}`] = excelCellToPlain(raw) ?? null;
+      });
+      rows.push(record);
+    });
+  }
+
+  return { fileName: file.name, sheets: sheetNames, rows };
 }
 
 export async function createAnalysis(_prevState: ActionState, formData: FormData): Promise<ActionState> {
@@ -236,12 +257,13 @@ export async function createAnalysis(_prevState: ActionState, formData: FormData
     // Si el tipo de análisis es financiero, calcular los indicadores a partir
     // de las filas parseadas del archivo. Si no hay filas suficientes para un
     // indicador, ese indicador queda en null (no rompe el análisis).
-    let results: unknown = {};
-    const { data: analysisType } = await admin
-      .from('analysis_types')
-      .select('code')
-      .eq('id', analysisTypeId)
-      .single();
+    let results: any = {};
+    let narrative: FinancialNarrative | null = null;
+
+    const [{ data: analysisType }, { data: companyRow }] = await Promise.all([
+      admin.from('analysis_types').select('code, name').eq('id', analysisTypeId).single(),
+      admin.from('companies').select('name').eq('id', companyId).single(),
+    ]);
 
     if (
       analysisType?.code &&
@@ -249,6 +271,16 @@ export async function createAnalysis(_prevState: ActionState, formData: FormData
       Array.isArray(sourceData.rows)
     ) {
       results = computeFinancialResults(sourceData.rows);
+
+      if (hasAnyIndicator(results) && companyRow?.name) {
+        narrative = await generateNarrative({
+          companyName: companyRow.name,
+          periodStart,
+          periodEnd,
+          analysisTypeName: analysisType.name,
+          results,
+        });
+      }
     }
 
     const { error } = await admin.from('analyses').insert({
@@ -259,6 +291,7 @@ export async function createAnalysis(_prevState: ActionState, formData: FormData
       period_end: periodEnd,
       source_data: sourceData,
       results,
+      narrative,
       status: 'draft',
       created_by: user.id,
     });

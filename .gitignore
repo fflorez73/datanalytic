@@ -34,3 +34,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# archivos de bloqueo de Office (se crean al tener un .xlsx abierto)
+~$*
