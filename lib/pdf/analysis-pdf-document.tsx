@@ -23,7 +23,8 @@ import type { FinancialNarrative } from '@/lib/generate-narrative';
  * silencio (p.ej. "ROE−ROA" queda como "ROEROA"). Se sanea SOLO para el PDF;
  * la UI web no tiene esta limitación y conserva la tipografía original.
  */
-function sanitizeForPdf(text: string): string {
+function sanitizeForPdf(text: unknown): string {
+  if (typeof text !== 'string') return '';
   return text
     .replace(/[–—−]/g, '-')
     .replace(/[‘’]/g, "'")
@@ -31,20 +32,36 @@ function sanitizeForPdf(text: string): string {
     .replace(/…/g, '...');
 }
 
+/**
+ * El esquema de `narrative` cambió varias veces a lo largo del proyecto
+ * (la versión más antigua solo tenía resumen_ejecutivo/alertas/observaciones/
+ * tendencia/recomendacion) y las filas JSONB ya guardadas en la base de datos
+ * NUNCA se migran retroactivamente a la forma nueva. Un análisis viejo puede
+ * llegar aquí con secciones/riesgos/senales_alerta/recomendaciones ausentes —
+ * hacer .map() directo sobre esos campos (como se hacía antes) revienta con
+ * "Cannot read properties of undefined (reading 'map')" en cuanto alguien
+ * pide el PDF de un análisis creado antes de este esquema. Por eso cada
+ * campo-array se normaliza con Array.isArray(...) ? ... : [] en vez de
+ * asumir que siempre existe.
+ */
 function sanitizeNarrativeForPdf(n: FinancialNarrative | null): FinancialNarrative | null {
   if (!n) return null;
   return {
     resumen_ejecutivo: sanitizeForPdf(n.resumen_ejecutivo),
     dictamen: n.dictamen,
-    hallazgos_clave: n.hallazgos_clave.map(sanitizeForPdf),
-    secciones: n.secciones.map((s) => ({ titulo: sanitizeForPdf(s.titulo), analisis: sanitizeForPdf(s.analisis) })),
-    riesgos: n.riesgos.map((r) => ({ ...r, descripcion: sanitizeForPdf(r.descripcion) })),
-    senales_alerta: n.senales_alerta.map(sanitizeForPdf),
-    recomendaciones: n.recomendaciones.map((r) => ({
-      accion: sanitizeForPdf(r.accion),
-      responsable_sugerido: sanitizeForPdf(r.responsable_sugerido),
-      horizonte: sanitizeForPdf(r.horizonte),
-    })),
+    hallazgos_clave: Array.isArray(n.hallazgos_clave) ? n.hallazgos_clave.map(sanitizeForPdf) : [],
+    secciones: Array.isArray(n.secciones)
+      ? n.secciones.map((s) => ({ titulo: sanitizeForPdf(s?.titulo), analisis: sanitizeForPdf(s?.analisis) }))
+      : [],
+    riesgos: Array.isArray(n.riesgos) ? n.riesgos.map((r) => ({ ...r, descripcion: sanitizeForPdf(r?.descripcion) })) : [],
+    senales_alerta: Array.isArray(n.senales_alerta) ? n.senales_alerta.map(sanitizeForPdf) : [],
+    recomendaciones: Array.isArray(n.recomendaciones)
+      ? n.recomendaciones.map((r) => ({
+          accion: sanitizeForPdf(r?.accion),
+          responsable_sugerido: sanitizeForPdf(r?.responsable_sugerido),
+          horizonte: sanitizeForPdf(r?.horizonte),
+        }))
+      : [],
     conclusion: sanitizeForPdf(n.conclusion),
   };
 }
