@@ -262,3 +262,66 @@ export function formatIndicatorValue(value: number | null | undefined, format: I
   if (format === 'currency') return new Intl.NumberFormat('es-CO', { maximumFractionDigits: 0 }).format(value);
   return value.toFixed(2);
 }
+
+// ================================================================
+// Semáforos — rangos estándar de análisis financiero.
+// Los valores están en las mismas unidades que `results` (fracción
+// para porcentajes: 0.4344 = 43.44%; número plano para ratios).
+// ================================================================
+
+export type SemaphoreStatus = 'good' | 'warning' | 'critical' | 'unknown';
+
+type SemaphoreRange = { good: number; warning: number; direction: 'higher-better' | 'lower-better' };
+
+/**
+ * good/warning son los umbrales que separan verde↔amarillo y amarillo↔rojo.
+ * direction indica si "más alto es mejor" (liquidez, cobertura, rentabilidad)
+ * o "más bajo es mejor" (endeudamiento). capital_trabajo se maneja aparte
+ * (no es un ratio ni un %, solo importa si es positivo o negativo).
+ */
+const SEMAPHORE_RANGES: Partial<Record<string, SemaphoreRange>> = {
+  razon_corriente: { good: 1.5, warning: 1, direction: 'higher-better' },
+  prueba_acida: { good: 1, warning: 0.7, direction: 'higher-better' },
+  nivel_endeudamiento: { good: 0.4, warning: 0.6, direction: 'lower-better' },
+  endeudamiento_financiero: { good: 0.3, warning: 0.5, direction: 'lower-better' },
+  cobertura_intereses: { good: 3, warning: 1.5, direction: 'higher-better' },
+  margen_bruto: { good: 0.4, warning: 0.2, direction: 'higher-better' },
+  margen_operacional: { good: 0.15, warning: 0.05, direction: 'higher-better' },
+  margen_neto: { good: 0.1, warning: 0.05, direction: 'higher-better' },
+  roa: { good: 0.08, warning: 0.03, direction: 'higher-better' },
+  roe: { good: 0.15, warning: 0.08, direction: 'higher-better' },
+};
+
+export function classifyIndicator(key: string, value: number | null | undefined): SemaphoreStatus {
+  if (value === null || value === undefined || Number.isNaN(value)) return 'unknown';
+  if (key === 'capital_trabajo') return value >= 0 ? 'good' : 'critical';
+
+  const range = SEMAPHORE_RANGES[key];
+  if (!range) return 'unknown';
+
+  if (range.direction === 'higher-better') {
+    if (value >= range.good) return 'good';
+    if (value >= range.warning) return 'warning';
+    return 'critical';
+  }
+  if (value <= range.good) return 'good';
+  if (value <= range.warning) return 'warning';
+  return 'critical';
+}
+
+/**
+ * Normaliza un indicador a "% de la meta alcanzado" (100 = justo en el
+ * umbral "good") para poder comparar ratios y porcentajes de distinta
+ * unidad en un mismo eje de gráfico. null para indicadores sin rango
+ * definido (p.ej. capital_trabajo, que es un monto, no un ratio).
+ */
+export function scoreVsIdeal(key: string, value: number | null | undefined): number | null {
+  if (value === null || value === undefined || Number.isNaN(value)) return null;
+  const range = SEMAPHORE_RANGES[key];
+  if (!range) return null;
+
+  if (range.direction === 'higher-better') {
+    return round((value / range.good) * 100);
+  }
+  return round((range.good / Math.max(value, 0.0001)) * 100);
+}
