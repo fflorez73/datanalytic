@@ -51,24 +51,32 @@ export async function GET(_request: Request, { params }: { params: { id: string 
   const analysisTypeName = analysis.analysis_types?.name || '—';
   const generatedAt = new Date().toLocaleDateString('es-CO', { day: 'numeric', month: 'long', year: 'numeric' });
 
-  const buffer = await renderToBuffer(
-    AnalysisPdfDocument({
-      companyName,
-      title: analysis.title,
-      analysisTypeName,
-      periodStart: analysis.period_start,
-      periodEnd: analysis.period_end,
-      status: analysis.status,
-      results: analysis.results,
-      narrative: analysis.narrative ?? null,
-      generatedAt,
-    })
-  );
+  try {
+    const buffer = await renderToBuffer(
+      AnalysisPdfDocument({
+        companyName,
+        title: analysis.title,
+        analysisTypeName,
+        periodStart: analysis.period_start,
+        periodEnd: analysis.period_end,
+        status: analysis.status,
+        results: analysis.results,
+        narrative: analysis.narrative ?? null,
+        generatedAt,
+      })
+    );
 
-  return new NextResponse(buffer as unknown as BodyInit, {
-    headers: {
-      'Content-Type': 'application/pdf',
-      'Content-Disposition': `attachment; filename="${sanitizeFileName(analysis.title)}.pdf"`,
-    },
-  });
+    return new NextResponse(buffer as unknown as BodyInit, {
+      headers: {
+        'Content-Type': 'application/pdf',
+        'Content-Disposition': `attachment; filename="${sanitizeFileName(analysis.title)}.pdf"`,
+      },
+    });
+  } catch (e: any) {
+    // No tragar el error — @react-pdf/renderer lanza excepciones específicas
+    // (p.ej. estilos inválidos, valores no numéricos en un Svg/View) que un
+    // catch genérico en el cliente no puede diagnosticar sin este log.
+    console.error('[PDF] Error generando PDF:', { analysisId: params.id, message: e?.message, stack: e?.stack });
+    return NextResponse.json({ error: 'No se pudo generar el PDF.' }, { status: 500 });
+  }
 }

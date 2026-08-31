@@ -11,7 +11,14 @@ export function DownloadPdfButton({ analysisId, fileName }: { analysisId: string
     setError(null);
     try {
       const response = await fetch(`/api/analyses/${analysisId}/pdf`);
-      if (!response.ok) throw new Error('No se pudo generar el PDF.');
+      if (!response.ok) {
+        // El servidor ya logueó el error real (mensaje + stack) — aquí solo
+        // recuperamos el mensaje corto que expone la API para no tragarlo
+        // en un texto genérico sin pista de la causa.
+        const body = await response.json().catch(() => null);
+        console.error('[PDF] Fallo al descargar:', response.status, body);
+        throw new Error(body?.error || `No se pudo generar el PDF (HTTP ${response.status}).`);
+      }
 
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);

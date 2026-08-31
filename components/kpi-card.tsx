@@ -16,9 +16,9 @@ export function KpiCard({
 
   return (
     <div className={`rounded-2xl bg-gradient-to-br ${gradient} p-5 text-white shadow-sm`}>
-      <p className="text-3xl font-semibold tracking-tight sm:text-4xl">{value}</p>
-      <p className="mt-1 text-sm font-medium text-white/85">{label}</p>
-      {delta && <p className="mt-2.5 text-xs font-medium text-white/75">{delta}</p>}
+      <p className="text-3xl font-semibold tracking-tight text-white sm:text-4xl">{value}</p>
+      <p className="mt-1 text-sm font-medium text-white/90">{label}</p>
+      {delta && <p className="mt-2.5 text-xs font-medium text-white/80">{delta}</p>}
     </div>
   );
 }
