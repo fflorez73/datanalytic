@@ -42,7 +42,7 @@ const ACCOUNT_LABELS: Record<AccountKey, string> = {
  * Orden importa: las más específicas ("total X") van antes que las genéricas
  * ("X corriente") para no confundir "Total Activo" con "Activo Corriente".
  */
-const ACCOUNT_RULES: { key: AccountKey; test: (label: string) => boolean; sum?: boolean }[] = [
+const ACCOUNT_RULES: { key: AccountKey; test: (label: string) => boolean; sum?: boolean; abs?: boolean }[] = [
   { key: 'total_patrimonio', test: (l) => l.includes('patrimonio') },
   {
     // Excluye "corriente" para no capturar "Total Activo Corriente" /
@@ -81,10 +81,15 @@ const ACCOUNT_RULES: { key: AccountKey; test: (label: string) => boolean; sum?: 
     test: (l) => l.includes('utilidad') && (l.includes('operacional') || l.includes('operativa')),
   },
   { key: 'utilidad_neta', test: (l) => l.includes('utilidad') && l.includes('neta') },
-  { key: 'gastos_financieros', test: (l) => (l.includes('gasto') || l.includes('costo')) && l.includes('financ') },
+  {
+    key: 'gastos_financieros',
+    test: (l) => (l.includes('gasto') || l.includes('costo')) && l.includes('financ'),
+    abs: true,
+  },
   {
     key: 'costo_ventas',
     test: (l) => l.includes('costo') && (l.includes('venta') || l.includes('mercanc') || l.includes('producto vendido')),
+    abs: true,
   },
   { key: 'ventas', test: (l) => l.includes('ventas') || (l.includes('ingresos') && l.includes('operacional')) },
 ];
@@ -161,10 +166,16 @@ function extractAccounts(rows: Record<string, unknown>[]): Partial<Record<Accoun
     for (const rule of ACCOUNT_RULES) {
       if (!rule.test(label)) continue;
 
+      // Los estados de resultados suelen registrar costos/gastos como negativos
+      // (líneas de deducción en un P&G corrido). Los indicadores que dividen por
+      // estas cuentas (cobertura_intereses, DIO, DPO, CCC) esperan la magnitud,
+      // no el signo contable — abs normaliza esto en el punto de extracción.
+      const normalizedValue = rule.abs ? Math.abs(value) : value;
+
       if (rule.sum) {
-        accounts[rule.key] = (accounts[rule.key] ?? 0) + value;
+        accounts[rule.key] = (accounts[rule.key] ?? 0) + normalizedValue;
       } else if (accounts[rule.key] === undefined) {
-        accounts[rule.key] = value;
+        accounts[rule.key] = normalizedValue;
       }
       break; // primera regla que matchea gana — no seguir evaluando otras para esta fila
     }

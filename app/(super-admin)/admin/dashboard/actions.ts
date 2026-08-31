@@ -136,10 +136,15 @@ export async function createCompanyUser(_prevState: ActionState, formData: FormD
       return { error: `No se pudo crear el usuario: ${createError?.message || 'error desconocido'}` };
     }
 
+    // upsert (no update): si el trigger on_auth_user_created (002_handle_new_user.sql)
+    // no está instalado en la base de datos — o corre de forma asíncrona — no existe
+    // fila previa en profiles para hacer UPDATE sobre ella. Un UPDATE contra una fila
+    // inexistente no falla (profileError queda null, 0 filas afectadas): el usuario
+    // de auth.users queda creado pero invisible en cualquier listado/consulta por
+    // company_id. El upsert garantiza la fila sin depender de ese trigger.
     const { error: profileError } = await admin
       .from('profiles')
-      .update({ company_id: companyId, role: 'client', full_name: fullName || null })
-      .eq('id', created.user.id);
+      .upsert({ id: created.user.id, email, company_id: companyId, role: 'client', full_name: fullName || null });
 
     if (profileError) {
       logSupabaseError('CREATE_COMPANY_USER_PROFILE', profileError, { userId: created.user.id, companyId });
