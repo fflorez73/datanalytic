@@ -68,6 +68,7 @@ export async function createCompany(_prevState: ActionState, formData: FormData)
       return { error: `No se pudo crear la empresa: ${error.message}` };
     }
 
+    revalidatePath('/admin/dashboard/companies');
     revalidatePath('/admin/dashboard');
     return { success: true };
   } catch (e: any) {
@@ -85,8 +86,9 @@ export async function toggleCompanyActive(companyId: string, active: boolean) {
     throw new Error(error.message);
   }
 
-  revalidatePath('/admin/dashboard');
+  revalidatePath('/admin/dashboard/companies');
   revalidatePath(`/admin/dashboard/companies/${companyId}`);
+  revalidatePath('/admin/dashboard');
 }
 
 // ================================================================
@@ -130,6 +132,7 @@ export async function createCompanyUser(_prevState: ActionState, formData: FormD
     }
 
     revalidatePath(`/admin/dashboard/companies/${companyId}`);
+    revalidatePath('/admin/dashboard/users');
     return { success: true };
   } catch (e: any) {
     return { error: e.message || 'Error inesperado.' };
@@ -230,7 +233,7 @@ export async function createAnalysis(_prevState: ActionState, formData: FormData
       return { error: `No se pudo crear el análisis: ${error.message}` };
     }
 
-    revalidatePath(`/admin/dashboard/companies/${companyId}`);
+    revalidatePath('/admin/dashboard/analyses');
     revalidatePath('/admin/dashboard');
     return { success: true };
   } catch (e: any) {
@@ -252,7 +255,7 @@ export async function publishAnalysis(analysisId: string, companyId: string) {
     throw new Error(`No se pudo publicar el análisis: ${error.message}`);
   }
 
-  revalidatePath(`/admin/dashboard/companies/${companyId}`);
+  revalidatePath('/admin/dashboard/analyses');
   revalidatePath('/admin/dashboard');
 }
 
@@ -270,6 +273,6 @@ export async function deleteAnalysis(analysisId: string, companyId: string) {
     throw new Error(`No se pudo eliminar el análisis: ${error.message}`);
   }
 
-  revalidatePath(`/admin/dashboard/companies/${companyId}`);
+  revalidatePath('/admin/dashboard/analyses');
   revalidatePath('/admin/dashboard');
 }
