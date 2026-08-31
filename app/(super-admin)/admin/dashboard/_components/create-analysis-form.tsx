@@ -18,10 +18,10 @@ function SubmitButton() {
 }
 
 export function CreateAnalysisForm({
-  companies,
+  companyId,
   analysisTypes,
 }: {
-  companies: { id: string; name: string }[];
+  companyId: string;
   analysisTypes: { id: string; name: string }[];
 }) {
   const [state, formAction] = useFormState(createAnalysis, {});
@@ -33,26 +33,9 @@ export function CreateAnalysisForm({
 
   return (
     <form ref={formRef} action={formAction} className="grid gap-3 sm:grid-cols-2">
-      <div>
-        <label className="mb-1 block text-xs font-medium text-slate-600">Empresa *</label>
-        <select
-          name="company_id"
-          required
-          defaultValue=""
-          className="w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500"
-        >
-          <option value="" disabled>
-            Selecciona...
-          </option>
-          {companies.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name}
-            </option>
-          ))}
-        </select>
-      </div>
+      <input type="hidden" name="company_id" value={companyId} />
 
-      <div>
+      <div className="sm:col-span-2">
         <label className="mb-1 block text-xs font-medium text-slate-600">Tipo de análisis *</label>
         <select
           name="analysis_type_id"

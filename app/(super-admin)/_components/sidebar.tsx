@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { SignOutButton } from '@/components/sign-out-button';
+import { CompanySelector } from './company-selector';
 
 const NAV_ITEMS = [
   { href: '/admin/dashboard/companies', label: 'Empresas' },
@@ -10,7 +11,15 @@ const NAV_ITEMS = [
   { href: '/admin/dashboard/analyses', label: 'Análisis' },
 ];
 
-export function Sidebar({ userEmail }: { userEmail: string }) {
+export function Sidebar({
+  userEmail,
+  companies,
+  selectedCompanyId,
+}: {
+  userEmail: string;
+  companies: { id: string; name: string }[];
+  selectedCompanyId: string | null;
+}) {
   const pathname = usePathname();
 
   return (
@@ -21,6 +30,8 @@ export function Sidebar({ userEmail }: { userEmail: string }) {
         </Link>
         <p className="mt-0.5 text-xs text-slate-400">Super Admin</p>
       </div>
+
+      <CompanySelector companies={companies} selectedCompanyId={selectedCompanyId} />
 
       <nav className="flex-1 space-y-1 px-3 py-4">
         {NAV_ITEMS.map((item) => {

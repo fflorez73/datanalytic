@@ -1,15 +1,34 @@
+import { getSelectedCompany } from '@/lib/company-context';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { CreateAnalysisForm } from '../_components/create-analysis-form';
 import { AnalysisRowActions } from '../_components/analysis-row-actions';
 
 export default async function AnalysesPage() {
+  const company = await getSelectedCompany();
+
+  if (!company) {
+    return (
+      <div>
+        <div className="mb-6">
+          <h1 className="text-xl font-semibold text-slate-900">Análisis</h1>
+          <p className="text-sm text-slate-500">Crea, publica y administra los análisis por empresa.</p>
+        </div>
+        <div className="rounded-lg border border-dashed border-slate-300 bg-white p-10 text-center shadow-sm">
+          <p className="text-sm text-slate-500">
+            Selecciona una empresa en el panel izquierdo para ver y crear sus análisis.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   const admin = createAdminClient();
 
-  const { data: companies } = await admin.from('companies').select('id, name').order('name');
   const { data: analysisTypes } = await admin.from('analysis_types').select('id, name').order('name');
   const { data: analyses } = await admin
     .from('analyses')
-    .select('id, title, status, period_start, period_end, company_id, companies(name)')
+    .select('id, title, status, period_start, period_end')
+    .eq('company_id', company.id)
     .is('deleted_at', null)
     .order('created_at', { ascending: false });
 
@@ -17,7 +36,9 @@ export default async function AnalysesPage() {
     <div className="space-y-8">
       <div>
         <h1 className="text-xl font-semibold text-slate-900">Análisis</h1>
-        <p className="text-sm text-slate-500">Crea, publica y administra los análisis por empresa.</p>
+        <p className="text-sm text-slate-500">
+          Viendo: <span className="font-medium text-slate-700">{company.name}</span>
+        </p>
       </div>
 
       <section className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
@@ -28,10 +49,7 @@ export default async function AnalysesPage() {
             para poder crear análisis.
           </p>
         )}
-        <CreateAnalysisForm
-          companies={(companies || []).map((c) => ({ id: c.id, name: c.name }))}
-          analysisTypes={analysisTypes || []}
-        />
+        <CreateAnalysisForm companyId={company.id} analysisTypes={analysisTypes || []} />
       </section>
 
       <section className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
@@ -42,7 +60,6 @@ export default async function AnalysesPage() {
             <table className="w-full text-left text-sm">
               <thead>
                 <tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500">
-                  <th className="py-3 pr-6">Empresa</th>
                   <th className="py-3 pr-6">Título</th>
                   <th className="py-3 pr-6">Período</th>
                   <th className="py-3 pr-6">Estado</th>
@@ -50,9 +67,8 @@ export default async function AnalysesPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {analyses.map((a: any) => (
+                {analyses.map((a) => (
                   <tr key={a.id}>
-                    <td className="py-3 pr-6 text-slate-800">{a.companies?.name || '—'}</td>
                     <td className="py-3 pr-6 text-slate-800">{a.title}</td>
                     <td className="py-3 pr-6 text-slate-500">
                       {a.period_start} — {a.period_end}
@@ -69,7 +85,7 @@ export default async function AnalysesPage() {
                       </span>
                     </td>
                     <td className="py-3 pr-6">
-                      <AnalysisRowActions analysisId={a.id} companyId={a.company_id} status={a.status} />
+                      <AnalysisRowActions analysisId={a.id} companyId={company.id} status={a.status} />
                     </td>
                   </tr>
                 ))}
@@ -77,7 +93,7 @@ export default async function AnalysesPage() {
             </table>
           </div>
         ) : (
-          <p className="text-sm text-slate-400">Aún no hay análisis creados.</p>
+          <p className="text-sm text-slate-400">Aún no hay análisis para esta empresa.</p>
         )}
       </section>
     </div>

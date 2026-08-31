@@ -1,75 +1,66 @@
 import Link from 'next/link';
+import { getSelectedCompany } from '@/lib/company-context';
 import { createAdminClient } from '@/lib/supabase/admin';
 
 export default async function UsersPage() {
+  const company = await getSelectedCompany();
+
+  if (!company) {
+    return (
+      <div>
+        <div className="mb-6">
+          <h1 className="text-xl font-semibold text-slate-900">Usuarios</h1>
+          <p className="text-sm text-slate-500">Usuarios del sistema, por empresa.</p>
+        </div>
+        <div className="rounded-lg border border-dashed border-slate-300 bg-white p-10 text-center shadow-sm">
+          <p className="text-sm text-slate-500">
+            Selecciona una empresa en el panel izquierdo para ver sus usuarios.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   const admin = createAdminClient();
 
   const { data: users } = await admin
     .from('profiles')
-    .select('id, email, full_name, role, company_id, created_at, companies(name)')
+    .select('id, email, full_name, role, created_at')
+    .eq('company_id', company.id)
     .order('created_at', { ascending: false });
 
   return (
     <div className="space-y-8">
-      <div>
-        <h1 className="text-xl font-semibold text-slate-900">Usuarios</h1>
-        <p className="text-sm text-slate-500">
-          Todos los usuarios del sistema. Para crear uno nuevo entra al detalle de la empresa
-          correspondiente.
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-xl font-semibold text-slate-900">Usuarios</h1>
+          <p className="text-sm text-slate-500">
+            Viendo: <span className="font-medium text-slate-700">{company.name}</span>
+          </p>
+        </div>
+        <Link
+          href={`/admin/dashboard/companies/${company.id}`}
+          className="rounded-md bg-slate-900 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-slate-800"
+        >
+          + Crear usuario
+        </Link>
       </div>
 
       <section className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
         {users && users.length > 0 ? (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead>
-                <tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500">
-                  <th className="py-3 pr-6">Nombre</th>
-                  <th className="py-3 pr-6">Correo</th>
-                  <th className="py-3 pr-6">Empresa</th>
-                  <th className="py-3 pr-6">Rol</th>
-                  <th className="py-3 pr-6">Creado</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {users.map((u: any) => (
-                  <tr key={u.id}>
-                    <td className="py-3 pr-6 text-slate-800">{u.full_name || '—'}</td>
-                    <td className="py-3 pr-6 text-slate-600">{u.email}</td>
-                    <td className="py-3 pr-6 text-slate-600">
-                      {u.company_id ? (
-                        <Link
-                          href={`/admin/dashboard/companies/${u.company_id}`}
-                          className="hover:underline"
-                        >
-                          {u.companies?.name || '—'}
-                        </Link>
-                      ) : (
-                        '—'
-                      )}
-                    </td>
-                    <td className="py-3 pr-6">
-                      <span
-                        className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${
-                          u.role === 'super_admin'
-                            ? 'bg-purple-50 text-purple-700'
-                            : 'bg-slate-100 text-slate-600'
-                        }`}
-                      >
-                        {u.role}
-                      </span>
-                    </td>
-                    <td className="py-3 pr-6 text-slate-400">
-                      {new Date(u.created_at).toLocaleDateString()}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <ul className="divide-y divide-slate-100">
+            {users.map((u) => (
+              <li key={u.id} className="flex items-center justify-between py-3 text-sm">
+                <div>
+                  <p className="text-slate-800">{u.full_name || '—'}</p>
+                  <p className="text-slate-400">{u.email}</p>
+                </div>
+                <span className="text-xs text-slate-400">{u.role}</span>
+              </li>
+            ))}
+          </ul>
         ) : (
-          <p className="text-sm text-slate-400">Aún no hay usuarios registrados.</p>
+          <p className="text-sm text-slate-400">Aún no hay usuarios para esta empresa.</p>
         )}
       </section>
     </div>
