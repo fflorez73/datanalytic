@@ -69,6 +69,7 @@ export default async function ClientAnalysisDetailPage({ params }: { params: { i
         </Link>
 
         <AnalysisDetail
+          id={analysis.id}
           title={analysis.title}
           companyName={companyName}
           periodStart={analysis.period_start}

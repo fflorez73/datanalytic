@@ -363,6 +363,14 @@ export const INDICATOR_SECTIONS: {
   },
 ];
 
+/** Indicadores destacados para las tarjetas KPI — usado por la vista de detalle y el PDF exportado. */
+export const KPI_HEADLINE_DEFS: { section: string; key: string; label: string; format: IndicatorFormat }[] = [
+  { section: 'liquidez', key: 'razon_corriente', label: 'Razón Corriente', format: 'ratio' },
+  { section: 'rentabilidad', key: 'roe', label: 'ROE', format: 'percent' },
+  { section: 'endeudamiento', key: 'nivel_endeudamiento', label: 'Nivel de Endeudamiento', format: 'percent' },
+  { section: 'rentabilidad', key: 'margen_neto', label: 'Margen Neto', format: 'percent' },
+];
+
 export function formatIndicatorValue(value: number | null | undefined, format: IndicatorFormat): string {
   if (value === null || value === undefined || Number.isNaN(value)) return '—';
   if (format === 'percent') return `${(value * 100).toFixed(2)}%`;

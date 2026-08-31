@@ -8,20 +8,7 @@ import {
   type IndicatorFormat,
   type SemaphoreStatus,
 } from '@/lib/financial-indicators';
-
-const STATUS_COLOR: Record<SemaphoreStatus, string> = {
-  good: '#22c55e',
-  warning: '#f59e0b',
-  critical: '#ef4444',
-  unknown: '#cbd5e1',
-};
-
-const STATUS_LABEL: Record<SemaphoreStatus, string> = {
-  good: 'Saludable',
-  warning: 'Atención',
-  critical: 'Crítico',
-  unknown: 'Sin datos',
-};
+import { STATUS_HEX as STATUS_COLOR, STATUS_LABEL } from '@/lib/status-colors';
 
 function ChartTooltip({ active, payload }: any) {
   if (!active || !payload?.length) return null;

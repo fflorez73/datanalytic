@@ -41,6 +41,7 @@ export default async function AdminAnalysisDetailPage({ params }: { params: { id
       </Link>
 
       <AnalysisDetail
+        id={analysis.id}
         title={analysis.title}
         companyName={companyName}
         periodStart={analysis.period_start}
