@@ -34,7 +34,11 @@ export default async function ClientDashboardPage() {
         <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
           <div>
             <h1 className="text-lg font-semibold text-slate-900">Datanalytic</h1>
-            <p className="text-sm text-slate-500">{user.email}</p>
+            <div className="mt-1 leading-tight">
+              <p className="text-[11px] text-slate-400">Producto Mindaxis - Francisco Flórez</p>
+              <p className="text-[11px] text-slate-400">Ciencia de datos aplicada al crecimiento empresarial</p>
+            </div>
+            <p className="mt-1 text-sm text-slate-500">{user.email}</p>
           </div>
           <SignOutButton />
         </div>

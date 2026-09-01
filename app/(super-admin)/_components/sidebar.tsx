@@ -28,7 +28,11 @@ export function Sidebar({
         <Link href="/admin/dashboard" className="text-base font-semibold text-slate-900">
           Datanalytic
         </Link>
-        <p className="mt-0.5 text-xs text-slate-400">Super Admin</p>
+        <div className="mt-1 leading-tight">
+          <p className="text-[11px] text-slate-400">Producto Mindaxis - Francisco Flórez</p>
+          <p className="text-[11px] text-slate-400">Ciencia de datos aplicada al crecimiento empresarial</p>
+        </div>
+        <p className="mt-1.5 text-xs text-slate-400">Super Admin</p>
       </div>
 
       <CompanySelector companies={companies} selectedCompanyId={selectedCompanyId} />
