@@ -4,14 +4,14 @@ import { createClient } from '@/lib/supabase/server';
 import { SignOutButton } from '@/components/sign-out-button';
 import { KpiCard } from '@/components/kpi-card';
 import { ComparePeriodsPanel, type AnalysisTypeGroup } from '@/components/compare-periods-panel';
+import { CATEGORY_META, DEFAULT_CATEGORY_META } from '@/lib/module-meta';
 
-const CATEGORY_META: Record<string, { label: string; badgeClass: string; dotClass: string }> = {
-  financiero: { label: 'Financiero', badgeClass: 'bg-blue-50 text-blue-700', dotClass: 'bg-blue-500' },
-  comercial: { label: 'Comercial', badgeClass: 'bg-purple-50 text-purple-700', dotClass: 'bg-purple-500' },
-  operativo: { label: 'Operativo', badgeClass: 'bg-orange-50 text-orange-700', dotClass: 'bg-orange-500' },
-  talento_humano: { label: 'Talento Humano', badgeClass: 'bg-teal-50 text-teal-700', dotClass: 'bg-teal-500' },
+type CombinedAnalysisRow = {
+  id: string;
+  title: string;
+  narrative: unknown;
+  combined_analysis_sources: { analysis_id: string }[] | null;
 };
-const DEFAULT_CATEGORY_META = { label: 'Otro', badgeClass: 'bg-slate-100 text-slate-600', dotClass: 'bg-slate-400' };
 
 const DICTAMEN_BADGE_CLASS: Record<string, string> = {
   favorable: 'bg-emerald-50 text-emerald-700 border border-emerald-200',
@@ -72,7 +72,7 @@ export default async function ClientDashboardPage() {
 
   const { data: profile } = await supabase.from('profiles').select('company_id').eq('id', user.id).single();
 
-  const [{ data: analyses }, { data: allTypes }] = profile?.company_id
+  const [{ data: analyses }, { data: allTypes }, { data: combinedAnalyses }] = profile?.company_id
     ? await Promise.all([
         supabase
           .from('analyses')
@@ -82,11 +82,19 @@ export default async function ClientDashboardPage() {
           .is('deleted_at', null)
           .order('period_end', { ascending: false }),
         supabase.from('analysis_types').select('id').eq('active', true),
+        supabase
+          .from('combined_analyses')
+          .select('id, title, narrative, combined_analysis_sources(analysis_id)')
+          .eq('company_id', profile.company_id)
+          .eq('status', 'published')
+          .is('deleted_at', null)
+          .order('created_at', { ascending: false }),
       ])
-    : [{ data: null }, { data: null }];
+    : [{ data: null }, { data: null }, { data: null }];
 
   const list = (analyses ?? []) as unknown as AnalysisRow[];
   const totalTypesInCatalog = allTypes?.length ?? 0;
+  const combinedList = (combinedAnalyses ?? []) as unknown as CombinedAnalysisRow[];
 
   // ── KPIs ──
   const totalPublicados = list.length;
@@ -167,6 +175,37 @@ export default async function ClientDashboardPage() {
             <KpiCard label="Análisis Más Reciente" value={masReciente ? masReciente.period_end : '—'} status="neutral" delta={masReciente ? masReciente.title : undefined} />
           </div>
         </section>
+
+        {/* ── Reportes Especiales (Análisis Combinado) — separados y claramente diferenciados del listado normal ── */}
+        {combinedList.length > 0 && (
+          <section className="rounded-2xl border-2 border-indigo-200 bg-indigo-50/50 p-6 shadow-sm sm:p-8">
+            <div className="mb-4 flex items-center gap-2">
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-indigo-600 px-2.5 py-0.5 text-xs font-bold uppercase tracking-wide text-white">Especial</span>
+              <h2 className="text-base font-semibold text-slate-900">Reportes Especiales</h2>
+            </div>
+            <p className="mb-4 text-xs text-slate-500">Síntesis cruzada de varios análisis, buscando conexiones entre módulos que no son visibles en un informe individual.</p>
+
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {combinedList.map((c) => (
+                <div key={c.id} className="flex flex-col justify-between rounded-lg border-2 border-indigo-200 bg-white p-4">
+                  <div>
+                    <p className="text-sm font-medium text-slate-800">{c.title}</p>
+                    <p className="mt-0.5 text-xs text-slate-500">{c.combined_analysis_sources?.length ?? 0} análisis fuente</p>
+                    <div className="mt-2.5">
+                      <DictamenBadge dictamen={(c.narrative as any)?.dictamen} />
+                    </div>
+                  </div>
+                  <Link
+                    href={`/dashboard/combined/${c.id}`}
+                    className="mt-3 inline-flex items-center justify-center rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-500"
+                  >
+                    Ver reporte
+                  </Link>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
 
         {/* ── Análisis publicados, agrupados por tipo ── */}
         <section>

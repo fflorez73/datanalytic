@@ -9,6 +9,7 @@ const NAV_ITEMS = [
   { href: '/admin/dashboard/companies', label: 'Empresas' },
   { href: '/admin/dashboard/users', label: 'Usuarios' },
   { href: '/admin/dashboard/analyses', label: 'Análisis' },
+  { href: '/admin/dashboard/combined-analyses', label: 'Análisis Combinado' },
 ];
 
 export function Sidebar({

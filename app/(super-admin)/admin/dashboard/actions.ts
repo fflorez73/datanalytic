@@ -22,6 +22,8 @@ import { computeHrResults, computeHrComparativo, HR_ANALYSIS_TYPE_CODES } from '
 import { generateHrNarrative, type HrNarrative } from '@/lib/generate-hr-narrative';
 import { computeCostProfitabilityResults, computeCostProfitabilityComparativo, COST_PROFITABILITY_ANALYSIS_TYPE_CODES } from '@/lib/cost-profitability-analytics';
 import { generateCostProfitabilityNarrative, type CostProfitabilityNarrative } from '@/lib/generate-cost-profitability-narrative';
+import { getModuleFamily } from '@/lib/comparison-indicators';
+import { generateCombinedNarrative, type CombinedSourceInput } from '@/lib/generate-combined-narrative';
 
 export type ActionState = { error?: string; success?: boolean };
 
@@ -633,5 +635,136 @@ export async function deleteAnalysis(analysisId: string, companyId: string) {
   }
 
   revalidatePath('/admin/dashboard/analyses');
+  revalidatePath('/admin/dashboard');
+}
+
+// ================================================================
+// ANÁLISIS COMBINADO — síntesis por IA de 2+ análisis ya publicados
+// de una misma empresa. No es un motor de cálculo nuevo: reutiliza
+// los `results`/`narrative` ya generados por cada análisis fuente.
+// ================================================================
+
+export async function createCombinedAnalysis(_prevState: ActionState, formData: FormData): Promise<ActionState> {
+  try {
+    const user = await requireSuperAdmin();
+
+    const companyId = String(formData.get('company_id') || '');
+    const title = String(formData.get('title') || '').trim();
+    const sourceIds = formData
+      .getAll('source_analysis_ids')
+      .map((v) => String(v))
+      .filter(Boolean);
+
+    if (!companyId) return { error: 'Selecciona una empresa.' };
+    if (!title) return { error: 'El título es obligatorio.' };
+    if (sourceIds.length < 2) return { error: 'Selecciona al menos 2 análisis publicados para combinar.' };
+
+    const admin = createAdminClient();
+
+    const [{ data: companyRow }, { data: sourceAnalyses }] = await Promise.all([
+      admin.from('companies').select('name').eq('id', companyId).single(),
+      admin
+        .from('analyses')
+        .select('id, title, period_start, period_end, results, narrative, analysis_type_id, analysis_types(name, code)')
+        .in('id', sourceIds)
+        .eq('company_id', companyId)
+        .eq('status', 'published')
+        .is('deleted_at', null),
+    ]);
+
+    // Defensa: los ids llegan del formulario tal como los vio el navegador —
+    // si alguno ya no es válido (despublicado, borrado, o de otra empresa)
+    // entre que se cargó la página y que se envió el formulario, no se
+    // genera una síntesis parcial silenciosa.
+    if (!sourceAnalyses || sourceAnalyses.length !== sourceIds.length) {
+      return {
+        error: 'Uno o más análisis seleccionados ya no están disponibles (no publicados, de otra empresa, o eliminados). Actualiza la página e intenta de nuevo.',
+      };
+    }
+
+    const sources: CombinedSourceInput[] = sourceAnalyses.map((a: any) => ({
+      analysisId: a.id,
+      code: a.analysis_types?.code ?? '',
+      moduleFamily: getModuleFamily(a.analysis_types?.code ?? ''),
+      typeName: a.analysis_types?.name ?? 'Análisis',
+      periodStart: a.period_start,
+      periodEnd: a.period_end,
+      title: a.title,
+      resumenEjecutivo: (a.narrative as any)?.resumen_ejecutivo ?? null,
+      hallazgosClave: Array.isArray((a.narrative as any)?.hallazgos_clave) ? (a.narrative as any).hallazgos_clave : [],
+      results: a.results,
+    }));
+
+    const narrative = await generateCombinedNarrative({ companyName: companyRow?.name || '—', title, sources });
+
+    // A diferencia de los demás módulos, aquí la narrativa ES el producto —
+    // combined_analyses no tiene columna "results" propia. Un fallo real de
+    // generación (no solo falta de API key) se reporta al admin en vez de
+    // crear un combinado vacío.
+    if (!narrative) {
+      return { error: 'No se pudo generar la síntesis del análisis combinado. Intenta de nuevo en unos minutos.' };
+    }
+
+    const { data: inserted, error: insertError } = await admin
+      .from('combined_analyses')
+      .insert({ company_id: companyId, title, narrative, status: 'draft', created_by: user.id })
+      .select('id')
+      .single();
+
+    if (insertError || !inserted) {
+      logSupabaseError('CREATE_COMBINED_ANALYSIS', insertError, { companyId });
+      return { error: `No se pudo crear el análisis combinado: ${insertError?.message}` };
+    }
+
+    const { error: sourcesError } = await admin
+      .from('combined_analysis_sources')
+      .insert(sourceIds.map((analysisId) => ({ combined_analysis_id: inserted.id, analysis_id: analysisId })));
+
+    if (sourcesError) {
+      logSupabaseError('CREATE_COMBINED_ANALYSIS_SOURCES', sourcesError, { companyId, combinedAnalysisId: inserted.id });
+      return { error: `El análisis combinado se creó pero no se pudieron registrar sus fuentes: ${sourcesError.message}` };
+    }
+
+    revalidatePath('/admin/dashboard/combined-analyses');
+    revalidatePath('/admin/dashboard');
+    return { success: true };
+  } catch (e: any) {
+    return { error: e.message || 'Error inesperado.' };
+  }
+}
+
+export async function publishCombinedAnalysis(combinedAnalysisId: string, companyId: string) {
+  await requireSuperAdmin();
+
+  const admin = createAdminClient();
+  const { error, status, statusText } = await admin
+    .from('combined_analyses')
+    .update({ status: 'published' })
+    .eq('id', combinedAnalysisId);
+
+  if (error) {
+    logSupabaseError('PUBLISH_COMBINED_ANALYSIS', error, { combinedAnalysisId, companyId, httpStatus: status, statusText });
+    throw new Error(`No se pudo publicar el análisis combinado: ${error.message}`);
+  }
+
+  revalidatePath('/admin/dashboard/combined-analyses');
+  revalidatePath('/admin/dashboard');
+}
+
+export async function deleteCombinedAnalysis(combinedAnalysisId: string, companyId: string) {
+  await requireSuperAdmin();
+
+  const admin = createAdminClient();
+  const { error, status, statusText } = await admin
+    .from('combined_analyses')
+    .update({ deleted_at: new Date().toISOString() })
+    .eq('id', combinedAnalysisId);
+
+  if (error) {
+    logSupabaseError('DELETE_COMBINED_ANALYSIS', error, { combinedAnalysisId, companyId, httpStatus: status, statusText });
+    throw new Error(`No se pudo eliminar el análisis combinado: ${error.message}`);
+  }
+
+  revalidatePath('/admin/dashboard/combined-analyses');
   revalidatePath('/admin/dashboard');
 }

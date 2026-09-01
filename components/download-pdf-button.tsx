@@ -2,7 +2,16 @@
 
 import { useState } from 'react';
 
-export function DownloadPdfButton({ analysisId, fileName }: { analysisId: string; fileName: string }) {
+export function DownloadPdfButton({
+  analysisId,
+  fileName,
+  endpoint,
+}: {
+  analysisId: string;
+  fileName: string;
+  /** URL del endpoint de PDF; por defecto /api/analyses/[id]/pdf. Los Análisis Combinados usan /api/combined-analyses/[id]/pdf. */
+  endpoint?: string;
+}) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -10,7 +19,7 @@ export function DownloadPdfButton({ analysisId, fileName }: { analysisId: string
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch(`/api/analyses/${analysisId}/pdf`);
+      const response = await fetch(endpoint || `/api/analyses/${analysisId}/pdf`);
       if (!response.ok) {
         // El servidor ya logueó el error real (mensaje + stack), pero en
         // Vercel el log de runtime no siempre es accesible de inmediato —

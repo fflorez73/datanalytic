@@ -47,6 +47,18 @@ function asNumber(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
+/**
+ * Familia canónica de un analysis_types.code, para agrupar los 3 códigos
+ * financieros bajo un mismo rótulo y normalizar "operativo_general" a
+ * "operativo" — vocabulario compartido con el módulo de Análisis Combinado
+ * (badges de "módulos involucrados" en sus conexiones identificadas).
+ */
+export function getModuleFamily(code: string): string {
+  if (FINANCIAL_CODES.includes(code)) return 'financiero';
+  if (code === 'operativo_general') return 'operativo';
+  return code;
+}
+
 export function getComparisonIndicators(code: string, results: unknown): ComparisonIndicator[] {
   const r = results && typeof results === 'object' ? (results as any) : {};
 
