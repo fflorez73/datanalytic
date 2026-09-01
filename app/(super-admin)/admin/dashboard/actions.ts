@@ -14,6 +14,8 @@ import { computeCustomerResults, CUSTOMER_ANALYSIS_TYPE_CODES } from '@/lib/cust
 import { generateCustomerNarrative, type CustomerNarrative } from '@/lib/generate-customer-narrative';
 import { computeSalesResults, computeSalesComparativo, SALES_ANALYSIS_TYPE_CODES } from '@/lib/sales-analytics';
 import { generateSalesNarrative, type SalesNarrative } from '@/lib/generate-sales-narrative';
+import { computeInventoryResults, computeInventoryComparativo, INVENTORY_ANALYSIS_TYPE_CODES } from '@/lib/inventory-analytics';
+import { generateInventoryNarrative, type InventoryNarrative } from '@/lib/generate-inventory-narrative';
 
 export type ActionState = { error?: string; success?: boolean };
 
@@ -33,6 +35,11 @@ function hasAnyCustomer(results: any): boolean {
 
 /** true si el motor de ventas pudo calcular un resumen a partir de al menos una venta válida. */
 function hasAnySales(results: any): boolean {
+  return Boolean(results && typeof results === 'object' && results.resumen);
+}
+
+/** true si el motor de inventarios pudo calcular un resumen a partir de al menos un SKU válido. */
+function hasAnyInventory(results: any): boolean {
   return Boolean(results && typeof results === 'object' && results.resumen);
 }
 
@@ -282,7 +289,7 @@ export async function createAnalysis(_prevState: ActionState, formData: FormData
     // filas suficientes para un indicador, ese indicador queda en null (no
     // rompe el análisis).
     let results: any = {};
-    let narrative: FinancialNarrative | CustomerNarrative | SalesNarrative | null = null;
+    let narrative: FinancialNarrative | CustomerNarrative | SalesNarrative | InventoryNarrative | null = null;
 
     const [{ data: analysisType }, { data: companyRow }] = await Promise.all([
       admin.from('analysis_types').select('code, name').eq('id', analysisTypeId).single(),
@@ -374,6 +381,44 @@ export async function createAnalysis(_prevState: ActionState, formData: FormData
 
       if (hasAnySales(results) && companyRow?.name) {
         narrative = await generateSalesNarrative({
+          companyName: companyRow.name,
+          periodStart,
+          periodEnd,
+          analysisTypeName: analysisType.name,
+          results,
+        });
+      }
+    } else if (
+      analysisType?.code &&
+      (INVENTORY_ANALYSIS_TYPE_CODES as readonly string[]).includes(analysisType.code) &&
+      Array.isArray(sourceData.rows)
+    ) {
+      results = computeInventoryResults(sourceData.rows, { periodStart, periodEnd });
+
+      // Comparativo automático contra el análisis de inventarios publicado
+      // más reciente de la misma empresa, con period_end anterior al de este.
+      const { data: previousInventoryAnalysis } = await admin
+        .from('analyses')
+        .select('period_end, results')
+        .eq('company_id', companyId)
+        .eq('analysis_type_id', analysisTypeId)
+        .eq('status', 'published')
+        .is('deleted_at', null)
+        .lt('period_end', periodEnd)
+        .order('period_end', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (previousInventoryAnalysis?.results && typeof previousInventoryAnalysis.results === 'object') {
+        results.comparativo_periodo_anterior = computeInventoryComparativo(
+          results,
+          previousInventoryAnalysis.results,
+          previousInventoryAnalysis.period_end
+        );
+      }
+
+      if (hasAnyInventory(results) && companyRow?.name) {
+        narrative = await generateInventoryNarrative({
           companyName: companyRow.name,
           periodStart,
           periodEnd,
