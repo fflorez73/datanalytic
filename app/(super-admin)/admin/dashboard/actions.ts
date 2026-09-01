@@ -18,6 +18,8 @@ import { computeInventoryResults, computeInventoryComparativo, INVENTORY_ANALYSI
 import { generateInventoryNarrative, type InventoryNarrative } from '@/lib/generate-inventory-narrative';
 import { computeOperationsResults, computeOperationsComparativo, OPERATIONS_ANALYSIS_TYPE_CODES } from '@/lib/operations-analytics';
 import { generateOperationsNarrative, type OperationsNarrative } from '@/lib/generate-operations-narrative';
+import { computeHrResults, computeHrComparativo, HR_ANALYSIS_TYPE_CODES } from '@/lib/hr-analytics';
+import { generateHrNarrative, type HrNarrative } from '@/lib/generate-hr-narrative';
 
 export type ActionState = { error?: string; success?: boolean };
 
@@ -47,6 +49,11 @@ function hasAnyInventory(results: any): boolean {
 
 /** true si el motor operativo pudo calcular un resumen a partir de al menos un área/proceso válido. */
 function hasAnyOperations(results: any): boolean {
+  return Boolean(results && typeof results === 'object' && results.resumen);
+}
+
+/** true si el motor de nómina/talento pudo calcular un resumen a partir de al menos un empleado válido. */
+function hasAnyHr(results: any): boolean {
   return Boolean(results && typeof results === 'object' && results.resumen);
 }
 
@@ -296,7 +303,7 @@ export async function createAnalysis(_prevState: ActionState, formData: FormData
     // filas suficientes para un indicador, ese indicador queda en null (no
     // rompe el análisis).
     let results: any = {};
-    let narrative: FinancialNarrative | CustomerNarrative | SalesNarrative | InventoryNarrative | OperationsNarrative | null = null;
+    let narrative: FinancialNarrative | CustomerNarrative | SalesNarrative | InventoryNarrative | OperationsNarrative | HrNarrative | null = null;
 
     const [{ data: analysisType }, { data: companyRow }] = await Promise.all([
       admin.from('analysis_types').select('code, name').eq('id', analysisTypeId).single(),
@@ -464,6 +471,44 @@ export async function createAnalysis(_prevState: ActionState, formData: FormData
 
       if (hasAnyOperations(results) && companyRow?.name) {
         narrative = await generateOperationsNarrative({
+          companyName: companyRow.name,
+          periodStart,
+          periodEnd,
+          analysisTypeName: analysisType.name,
+          results,
+        });
+      }
+    } else if (
+      analysisType?.code &&
+      (HR_ANALYSIS_TYPE_CODES as readonly string[]).includes(analysisType.code) &&
+      Array.isArray(sourceData.rows)
+    ) {
+      results = computeHrResults(sourceData.rows, { periodStart, periodEnd });
+
+      // Comparativo automático contra el análisis de nómina publicado más
+      // reciente de la misma empresa, con period_end anterior al de este.
+      const { data: previousHrAnalysis } = await admin
+        .from('analyses')
+        .select('period_end, results')
+        .eq('company_id', companyId)
+        .eq('analysis_type_id', analysisTypeId)
+        .eq('status', 'published')
+        .is('deleted_at', null)
+        .lt('period_end', periodEnd)
+        .order('period_end', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (previousHrAnalysis?.results && typeof previousHrAnalysis.results === 'object') {
+        results.comparativo_periodo_anterior = computeHrComparativo(
+          results,
+          previousHrAnalysis.results,
+          previousHrAnalysis.period_end
+        );
+      }
+
+      if (hasAnyHr(results) && companyRow?.name) {
+        narrative = await generateHrNarrative({
           companyName: companyRow.name,
           periodStart,
           periodEnd,

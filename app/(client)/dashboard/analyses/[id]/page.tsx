@@ -7,11 +7,13 @@ import { CustomerAnalysisDetail } from '@/components/customer-analysis-detail';
 import { SalesAnalysisDetail } from '@/components/sales-analysis-detail';
 import { InventoryAnalysisDetail } from '@/components/inventory-analysis-detail';
 import { OperationsAnalysisDetail } from '@/components/operations-analysis-detail';
+import { HrAnalysisDetail } from '@/components/hr-analysis-detail';
 import { fetchAnalysisHistory } from '@/lib/analysis-history';
 import { CUSTOMER_ANALYSIS_TYPE_CODES } from '@/lib/customer-analytics';
 import { SALES_ANALYSIS_TYPE_CODES } from '@/lib/sales-analytics';
 import { INVENTORY_ANALYSIS_TYPE_CODES } from '@/lib/inventory-analytics';
 import { OPERATIONS_ANALYSIS_TYPE_CODES } from '@/lib/operations-analytics';
+import { HR_ANALYSIS_TYPE_CODES } from '@/lib/hr-analytics';
 
 export default async function ClientAnalysisDetailPage({ params }: { params: { id: string } }) {
   const supabase = createClient();
@@ -50,6 +52,7 @@ export default async function ClientAnalysisDetailPage({ params }: { params: { i
   const isSalesAnalysis = (SALES_ANALYSIS_TYPE_CODES as readonly string[]).includes(analysisTypeCode);
   const isInventoryAnalysis = (INVENTORY_ANALYSIS_TYPE_CODES as readonly string[]).includes(analysisTypeCode);
   const isOperationsAnalysis = (OPERATIONS_ANALYSIS_TYPE_CODES as readonly string[]).includes(analysisTypeCode);
+  const isHrAnalysis = (HR_ANALYSIS_TYPE_CODES as readonly string[]).includes(analysisTypeCode);
 
   const others = await fetchAnalysisHistory(supabase, {
     companyId: analysis.company_id,
@@ -119,6 +122,18 @@ export default async function ClientAnalysisDetailPage({ params }: { params: { i
           />
         ) : isOperationsAnalysis ? (
           <OperationsAnalysisDetail
+            id={analysis.id}
+            title={analysis.title}
+            companyName={companyName}
+            periodStart={analysis.period_start}
+            periodEnd={analysis.period_end}
+            analysisTypeName={analysisTypeName}
+            status={analysis.status}
+            results={analysis.results}
+            narrative={analysis.narrative}
+          />
+        ) : isHrAnalysis ? (
+          <HrAnalysisDetail
             id={analysis.id}
             title={analysis.title}
             companyName={companyName}
