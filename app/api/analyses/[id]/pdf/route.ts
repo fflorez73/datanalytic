@@ -3,12 +3,14 @@ import { renderToBuffer } from '@react-pdf/renderer';
 import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { AnalysisPdfDocument } from '@/lib/pdf/analysis-pdf-document';
+import { CustomerPdfDocument } from '@/lib/pdf/customer-pdf-document';
+import { CUSTOMER_ANALYSIS_TYPE_CODES } from '@/lib/customer-analytics';
 
 // @react-pdf/renderer necesita Node.js completo (Buffer, streams) — no corre en el Edge runtime.
 export const runtime = 'nodejs';
 
 const ANALYSIS_SELECT =
-  'id, title, status, period_start, period_end, results, narrative, company_id, analysis_type_id, companies(name), analysis_types(name)';
+  'id, title, status, period_start, period_end, results, narrative, company_id, analysis_type_id, companies(name), analysis_types(name, code)';
 
 function sanitizeFileName(name: string): string {
   return name.replace(/[^a-zA-Z0-9-_ ]/g, '').trim().replace(/\s+/g, '-') || 'analisis';
@@ -58,20 +60,25 @@ export async function GET(_request: Request, { params }: { params: { id: string 
 
     const companyName = analysis.companies?.name || '—';
     const analysisTypeName = analysis.analysis_types?.name || '—';
+    const analysisTypeCode = analysis.analysis_types?.code || '';
     const generatedAt = new Date().toLocaleDateString('es-CO', { day: 'numeric', month: 'long', year: 'numeric' });
 
+    const isCustomerAnalysis = (CUSTOMER_ANALYSIS_TYPE_CODES as readonly string[]).includes(analysisTypeCode);
+
+    const documentProps = {
+      companyName,
+      title: analysis.title,
+      analysisTypeName,
+      periodStart: analysis.period_start,
+      periodEnd: analysis.period_end,
+      status: analysis.status,
+      results: analysis.results,
+      narrative: analysis.narrative ?? null,
+      generatedAt,
+    };
+
     const buffer = await renderToBuffer(
-      AnalysisPdfDocument({
-        companyName,
-        title: analysis.title,
-        analysisTypeName,
-        periodStart: analysis.period_start,
-        periodEnd: analysis.period_end,
-        status: analysis.status,
-        results: analysis.results,
-        narrative: analysis.narrative ?? null,
-        generatedAt,
-      })
+      isCustomerAnalysis ? CustomerPdfDocument(documentProps as any) : AnalysisPdfDocument(documentProps as any)
     );
 
     return new NextResponse(buffer as unknown as BodyInit, {

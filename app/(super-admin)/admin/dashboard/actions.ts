@@ -10,6 +10,8 @@ import {
   FINANCIAL_ANALYSIS_TYPE_CODES,
 } from '@/lib/financial-indicators';
 import { generateNarrative, type FinancialNarrative } from '@/lib/generate-narrative';
+import { computeCustomerResults, CUSTOMER_ANALYSIS_TYPE_CODES } from '@/lib/customer-analytics';
+import { generateCustomerNarrative, type CustomerNarrative } from '@/lib/generate-customer-narrative';
 
 export type ActionState = { error?: string; success?: boolean };
 
@@ -20,6 +22,11 @@ function hasAnyIndicator(results: any): boolean {
     const section = results[sectionKey];
     return section && Object.values(section).some((v) => v !== null && v !== undefined);
   });
+}
+
+/** true si el motor de clientes pudo identificar al menos un cliente válido. */
+function hasAnyCustomer(results: any): boolean {
+  return Boolean(results && typeof results === 'object' && Array.isArray(results.clientes) && results.clientes.length > 0);
 }
 
 const COMPANY_SIZES = ['micro', 'pequena', 'mediana', 'grande', 'corporativa'] as const;
@@ -263,11 +270,12 @@ export async function createAnalysis(_prevState: ActionState, formData: FormData
 
     const admin = createAdminClient();
 
-    // Si el tipo de análisis es financiero, calcular los indicadores a partir
-    // de las filas parseadas del archivo. Si no hay filas suficientes para un
-    // indicador, ese indicador queda en null (no rompe el análisis).
+    // Si el tipo de análisis es financiero o de clientes, calcular los
+    // indicadores a partir de las filas parseadas del archivo. Si no hay
+    // filas suficientes para un indicador, ese indicador queda en null (no
+    // rompe el análisis).
     let results: any = {};
-    let narrative: FinancialNarrative | null = null;
+    let narrative: FinancialNarrative | CustomerNarrative | null = null;
 
     const [{ data: analysisType }, { data: companyRow }] = await Promise.all([
       admin.from('analysis_types').select('code, name').eq('id', analysisTypeId).single(),
@@ -305,6 +313,22 @@ export async function createAnalysis(_prevState: ActionState, formData: FormData
 
       if (hasAnyIndicator(results) && companyRow?.name) {
         narrative = await generateNarrative({
+          companyName: companyRow.name,
+          periodStart,
+          periodEnd,
+          analysisTypeName: analysisType.name,
+          results,
+        });
+      }
+    } else if (
+      analysisType?.code &&
+      (CUSTOMER_ANALYSIS_TYPE_CODES as readonly string[]).includes(analysisType.code) &&
+      Array.isArray(sourceData.rows)
+    ) {
+      results = computeCustomerResults(sourceData.rows, { periodStart, periodEnd });
+
+      if (hasAnyCustomer(results) && companyRow?.name) {
+        narrative = await generateCustomerNarrative({
           companyName: companyRow.name,
           periodStart,
           periodEnd,

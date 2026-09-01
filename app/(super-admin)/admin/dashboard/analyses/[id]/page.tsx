@@ -3,6 +3,8 @@ import { notFound } from 'next/navigation';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { fetchAnalysisHistory } from '@/lib/analysis-history';
 import { AnalysisDetail } from '@/components/analysis-detail';
+import { CustomerAnalysisDetail } from '@/components/customer-analysis-detail';
+import { CUSTOMER_ANALYSIS_TYPE_CODES } from '@/lib/customer-analytics';
 
 export default async function AdminAnalysisDetailPage({ params }: { params: { id: string } }) {
   const admin = createAdminClient();
@@ -10,7 +12,7 @@ export default async function AdminAnalysisDetailPage({ params }: { params: { id
   const { data: analysis } = await admin
     .from('analyses')
     .select(
-      'id, title, status, period_start, period_end, results, narrative, company_id, analysis_type_id, companies(name), analysis_types(name)'
+      'id, title, status, period_start, period_end, results, narrative, company_id, analysis_type_id, companies(name), analysis_types(name, code)'
     )
     .eq('id', params.id)
     .is('deleted_at', null)
@@ -20,6 +22,8 @@ export default async function AdminAnalysisDetailPage({ params }: { params: { id
 
   const companyName = (analysis as any).companies?.name || '—';
   const analysisTypeName = (analysis as any).analysis_types?.name || '—';
+  const analysisTypeCode = (analysis as any).analysis_types?.code || '';
+  const isCustomerAnalysis = (CUSTOMER_ANALYSIS_TYPE_CODES as readonly string[]).includes(analysisTypeCode);
 
   const others = await fetchAnalysisHistory(admin, {
     companyId: analysis.company_id,
@@ -40,18 +44,32 @@ export default async function AdminAnalysisDetailPage({ params }: { params: { id
         ← Volver a análisis
       </Link>
 
-      <AnalysisDetail
-        id={analysis.id}
-        title={analysis.title}
-        companyName={companyName}
-        periodStart={analysis.period_start}
-        periodEnd={analysis.period_end}
-        analysisTypeName={analysisTypeName}
-        status={analysis.status}
-        results={analysis.results}
-        narrative={analysis.narrative}
-        history={history}
-      />
+      {isCustomerAnalysis ? (
+        <CustomerAnalysisDetail
+          id={analysis.id}
+          title={analysis.title}
+          companyName={companyName}
+          periodStart={analysis.period_start}
+          periodEnd={analysis.period_end}
+          analysisTypeName={analysisTypeName}
+          status={analysis.status}
+          results={analysis.results}
+          narrative={analysis.narrative}
+        />
+      ) : (
+        <AnalysisDetail
+          id={analysis.id}
+          title={analysis.title}
+          companyName={companyName}
+          periodStart={analysis.period_start}
+          periodEnd={analysis.period_end}
+          analysisTypeName={analysisTypeName}
+          status={analysis.status}
+          results={analysis.results}
+          narrative={analysis.narrative}
+          history={history}
+        />
+      )}
     </div>
   );
 }
