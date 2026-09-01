@@ -3,7 +3,7 @@ import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
 import { SignOutButton } from '@/components/sign-out-button';
 import { KpiCard } from '@/components/kpi-card';
-import { ComparePeriodsPanel, type ComparableGroup } from '@/components/compare-periods-panel';
+import { ComparePeriodsPanel, type AnalysisTypeGroup } from '@/components/compare-periods-panel';
 
 const CATEGORY_META: Record<string, { label: string; badgeClass: string; dotClass: string }> = {
   financiero: { label: 'Financiero', badgeClass: 'bg-blue-50 text-blue-700', dotClass: 'bg-blue-500' },
@@ -120,18 +120,20 @@ export default async function ClientDashboardPage() {
     return maxB.localeCompare(maxA);
   });
 
-  // ── Grupos comparables (≥2 análisis publicados del mismo tipo) ──
-  const comparableGroups: ComparableGroup[] = typeGroups
-    .filter((g) => g.items.length >= 2)
-    .map((g) => ({
-      typeId: g.typeId,
-      typeName: g.typeName,
-      typeCode: g.typeCode,
-      periods: g.items
-        .slice()
-        .sort((a, b) => a.period_end.localeCompare(b.period_end))
-        .map((a) => ({ id: a.id, title: a.title, periodStart: a.period_start, periodEnd: a.period_end, results: a.results })),
-    }));
+  // ── Todos los tipos con al menos un análisis publicado, para el selector
+  // "Paso 1" del panel de comparación (los que tienen <2 se listan igual,
+  // deshabilitados) — la sección solo se renderiza si al menos uno es
+  // comparable (≥2 análisis publicados del mismo tipo).
+  const analysisTypeGroupsForCompare: AnalysisTypeGroup[] = typeGroups.map((g) => ({
+    typeId: g.typeId,
+    typeName: g.typeName,
+    typeCode: g.typeCode,
+    periods: g.items
+      .slice()
+      .sort((a, b) => a.period_end.localeCompare(b.period_end))
+      .map((a) => ({ id: a.id, title: a.title, periodStart: a.period_start, periodEnd: a.period_end, results: a.results })),
+  }));
+  const hasComparableGroup = typeGroups.some((g) => g.items.length >= 2);
 
   return (
     <main className="min-h-screen bg-slate-50">
@@ -221,8 +223,8 @@ export default async function ClientDashboardPage() {
           <h2 className="mb-1 text-base font-semibold text-slate-900">Comparar Períodos</h2>
           <p className="mb-4 text-xs text-slate-400">Compara los indicadores principales de un mismo tipo de análisis a través de varios períodos.</p>
 
-          {comparableGroups.length > 0 ? (
-            <ComparePeriodsPanel groups={comparableGroups} />
+          {hasComparableGroup ? (
+            <ComparePeriodsPanel groups={analysisTypeGroupsForCompare} />
           ) : (
             <p className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-6 text-center text-sm text-slate-500">
               Necesitas al menos 2 análisis publicados del mismo tipo para comparar períodos.
