@@ -4,7 +4,9 @@ import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { AnalysisPdfDocument } from '@/lib/pdf/analysis-pdf-document';
 import { CustomerPdfDocument } from '@/lib/pdf/customer-pdf-document';
+import { SalesPdfDocument } from '@/lib/pdf/sales-pdf-document';
 import { CUSTOMER_ANALYSIS_TYPE_CODES } from '@/lib/customer-analytics';
+import { SALES_ANALYSIS_TYPE_CODES } from '@/lib/sales-analytics';
 
 // @react-pdf/renderer necesita Node.js completo (Buffer, streams) — no corre en el Edge runtime.
 export const runtime = 'nodejs';
@@ -64,6 +66,7 @@ export async function GET(_request: Request, { params }: { params: { id: string 
     const generatedAt = new Date().toLocaleDateString('es-CO', { day: 'numeric', month: 'long', year: 'numeric' });
 
     const isCustomerAnalysis = (CUSTOMER_ANALYSIS_TYPE_CODES as readonly string[]).includes(analysisTypeCode);
+    const isSalesAnalysis = (SALES_ANALYSIS_TYPE_CODES as readonly string[]).includes(analysisTypeCode);
 
     const documentProps = {
       companyName,
@@ -78,7 +81,11 @@ export async function GET(_request: Request, { params }: { params: { id: string 
     };
 
     const buffer = await renderToBuffer(
-      isCustomerAnalysis ? CustomerPdfDocument(documentProps as any) : AnalysisPdfDocument(documentProps as any)
+      isCustomerAnalysis
+        ? CustomerPdfDocument(documentProps as any)
+        : isSalesAnalysis
+          ? SalesPdfDocument(documentProps as any)
+          : AnalysisPdfDocument(documentProps as any)
     );
 
     return new NextResponse(buffer as unknown as BodyInit, {

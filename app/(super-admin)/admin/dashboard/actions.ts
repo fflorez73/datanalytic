@@ -12,6 +12,8 @@ import {
 import { generateNarrative, type FinancialNarrative } from '@/lib/generate-narrative';
 import { computeCustomerResults, CUSTOMER_ANALYSIS_TYPE_CODES } from '@/lib/customer-analytics';
 import { generateCustomerNarrative, type CustomerNarrative } from '@/lib/generate-customer-narrative';
+import { computeSalesResults, computeSalesComparativo, SALES_ANALYSIS_TYPE_CODES } from '@/lib/sales-analytics';
+import { generateSalesNarrative, type SalesNarrative } from '@/lib/generate-sales-narrative';
 
 export type ActionState = { error?: string; success?: boolean };
 
@@ -27,6 +29,11 @@ function hasAnyIndicator(results: any): boolean {
 /** true si el motor de clientes pudo identificar al menos un cliente válido. */
 function hasAnyCustomer(results: any): boolean {
   return Boolean(results && typeof results === 'object' && Array.isArray(results.clientes) && results.clientes.length > 0);
+}
+
+/** true si el motor de ventas pudo calcular un resumen a partir de al menos una venta válida. */
+function hasAnySales(results: any): boolean {
+  return Boolean(results && typeof results === 'object' && results.resumen);
 }
 
 const COMPANY_SIZES = ['micro', 'pequena', 'mediana', 'grande', 'corporativa'] as const;
@@ -275,7 +282,7 @@ export async function createAnalysis(_prevState: ActionState, formData: FormData
     // filas suficientes para un indicador, ese indicador queda en null (no
     // rompe el análisis).
     let results: any = {};
-    let narrative: FinancialNarrative | CustomerNarrative | null = null;
+    let narrative: FinancialNarrative | CustomerNarrative | SalesNarrative | null = null;
 
     const [{ data: analysisType }, { data: companyRow }] = await Promise.all([
       admin.from('analysis_types').select('code, name').eq('id', analysisTypeId).single(),
@@ -329,6 +336,44 @@ export async function createAnalysis(_prevState: ActionState, formData: FormData
 
       if (hasAnyCustomer(results) && companyRow?.name) {
         narrative = await generateCustomerNarrative({
+          companyName: companyRow.name,
+          periodStart,
+          periodEnd,
+          analysisTypeName: analysisType.name,
+          results,
+        });
+      }
+    } else if (
+      analysisType?.code &&
+      (SALES_ANALYSIS_TYPE_CODES as readonly string[]).includes(analysisType.code) &&
+      Array.isArray(sourceData.rows)
+    ) {
+      results = computeSalesResults(sourceData.rows, { periodStart, periodEnd });
+
+      // Comparativo automático contra el análisis de ventas publicado más
+      // reciente de la misma empresa, con period_end anterior al de este.
+      const { data: previousSalesAnalysis } = await admin
+        .from('analyses')
+        .select('period_end, results')
+        .eq('company_id', companyId)
+        .eq('analysis_type_id', analysisTypeId)
+        .eq('status', 'published')
+        .is('deleted_at', null)
+        .lt('period_end', periodEnd)
+        .order('period_end', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (previousSalesAnalysis?.results && typeof previousSalesAnalysis.results === 'object') {
+        results.comparativo_periodo_anterior = computeSalesComparativo(
+          results,
+          previousSalesAnalysis.results,
+          previousSalesAnalysis.period_end
+        );
+      }
+
+      if (hasAnySales(results) && companyRow?.name) {
+        narrative = await generateSalesNarrative({
           companyName: companyRow.name,
           periodStart,
           periodEnd,
