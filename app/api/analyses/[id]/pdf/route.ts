@@ -6,9 +6,11 @@ import { AnalysisPdfDocument } from '@/lib/pdf/analysis-pdf-document';
 import { CustomerPdfDocument } from '@/lib/pdf/customer-pdf-document';
 import { SalesPdfDocument } from '@/lib/pdf/sales-pdf-document';
 import { InventoryPdfDocument } from '@/lib/pdf/inventory-pdf-document';
+import { OperationsPdfDocument } from '@/lib/pdf/operations-pdf-document';
 import { CUSTOMER_ANALYSIS_TYPE_CODES } from '@/lib/customer-analytics';
 import { SALES_ANALYSIS_TYPE_CODES } from '@/lib/sales-analytics';
 import { INVENTORY_ANALYSIS_TYPE_CODES } from '@/lib/inventory-analytics';
+import { OPERATIONS_ANALYSIS_TYPE_CODES } from '@/lib/operations-analytics';
 
 // @react-pdf/renderer necesita Node.js completo (Buffer, streams) — no corre en el Edge runtime.
 export const runtime = 'nodejs';
@@ -70,6 +72,7 @@ export async function GET(_request: Request, { params }: { params: { id: string 
     const isCustomerAnalysis = (CUSTOMER_ANALYSIS_TYPE_CODES as readonly string[]).includes(analysisTypeCode);
     const isSalesAnalysis = (SALES_ANALYSIS_TYPE_CODES as readonly string[]).includes(analysisTypeCode);
     const isInventoryAnalysis = (INVENTORY_ANALYSIS_TYPE_CODES as readonly string[]).includes(analysisTypeCode);
+    const isOperationsAnalysis = (OPERATIONS_ANALYSIS_TYPE_CODES as readonly string[]).includes(analysisTypeCode);
 
     const documentProps = {
       companyName,
@@ -90,7 +93,9 @@ export async function GET(_request: Request, { params }: { params: { id: string 
           ? SalesPdfDocument(documentProps as any)
           : isInventoryAnalysis
             ? InventoryPdfDocument(documentProps as any)
-            : AnalysisPdfDocument(documentProps as any)
+            : isOperationsAnalysis
+              ? OperationsPdfDocument(documentProps as any)
+              : AnalysisPdfDocument(documentProps as any)
     );
 
     return new NextResponse(buffer as unknown as BodyInit, {
