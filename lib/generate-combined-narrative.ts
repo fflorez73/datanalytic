@@ -157,16 +157,33 @@ export async function generateCombinedNarrative(input: {
   const client = new Anthropic();
 
   try {
-    const response = await client.messages.create({
+    // claude-opus-5 piensa ("thinking" adaptativo) por defecto y ese gasto no
+    // es predecible: con 5 fuentes reales (Financiero+Clientes+Ventas+
+    // Inventarios+Operativo) se midió output_tokens variando 8732-10485 con
+    // max_tokens: 12000 — muy cerca del techo, y un run con más "thinking" lo
+    // excede, trunca el JSON a mitad y hace fallar el parseo (síntoma real de
+    // "No se pudo generar la síntesis..." en producción). Con más fuentes
+    // combinadas el riesgo crece, así que el margen debe ser generoso. El SDK
+    // exige streaming para max_tokens > 21333 (client.calculateNonstreamingTimeout:
+    // 60min*maxTokens/128000 > 10min) — probado localmente: con max_tokens:
+    // 24000 sin stream(), messages.create lanza "Streaming is required for
+    // operations that may take longer than 10 minutes" antes de llamar a la
+    // API. Se usa stream()+finalMessage() para poder dar un margen amplio.
+    const stream = client.messages.stream({
       model: ANTHROPIC_MODEL,
-      // Varias fuentes completas (indicadores + resumen + hallazgos de cada
-      // una) inflan el prompt más que un solo análisis — ver nota en
-      // generate-sales-narrative.ts / generate-operations-narrative.ts sobre
-      // por qué 8000 no basta con prompts de este tamaño.
-      max_tokens: 12000,
+      max_tokens: 32000,
       system: buildSystemPrompt(),
       messages: [{ role: 'user', content: buildUserPrompt(input) }],
     });
+    const response = await stream.finalMessage();
+
+    if (response.stop_reason === 'max_tokens') {
+      console.error(
+        '[COMBINED_NARRATIVE] Respuesta truncada por max_tokens (thinking + output excedieron el presupuesto) — usage:',
+        JSON.stringify(response.usage)
+      );
+      return null;
+    }
 
     const textBlock = response.content.find((b): b is Anthropic.TextBlock => b.type === 'text');
     if (!textBlock) {
@@ -182,7 +199,14 @@ export async function generateCombinedNarrative(input: {
 
     return parsed;
   } catch (e: any) {
-    console.error('[COMBINED_NARRATIVE] Excepción llamando a Anthropic:', e.message);
+    console.error('[COMBINED_NARRATIVE] Excepción llamando a Anthropic:', {
+      message: e?.message,
+      status: e?.status,
+      name: e?.name,
+      error: e?.error ? JSON.stringify(e.error) : undefined,
+      headers: e?.headers ? JSON.stringify(e.headers) : undefined,
+      stack: e?.stack,
+    });
     return null;
   }
 }
