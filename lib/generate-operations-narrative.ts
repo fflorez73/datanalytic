@@ -230,11 +230,18 @@ export async function generateOperationsNarrative(input: {
   try {
     const response = await client.messages.create({
       model: ANTHROPIC_MODEL,
-      // Ver nota en generate-sales-narrative.ts / generate-inventory-narrative.ts.
-      max_tokens: 12000,
+      // Ver nota en generate-sales-narrative.ts / generate-inventory-narrative.ts /
+      // generate-combined-narrative.ts. 20000 sigue por debajo del techo de
+      // 21333 que exige pasar a streaming (calculateNonstreamingTimeout).
+      max_tokens: 20000,
       system: buildSystemPrompt(),
       messages: [{ role: 'user', content: buildUserPrompt(input) }],
     });
+
+    if (response.stop_reason === 'max_tokens') {
+      console.error('[OPERATIONS_NARRATIVE] Respuesta truncada por max_tokens (thinking + output excedieron el presupuesto) — usage:', JSON.stringify(response.usage));
+      return null;
+    }
 
     const textBlock = response.content.find((b): b is Anthropic.TextBlock => b.type === 'text');
     if (!textBlock) {
@@ -250,7 +257,14 @@ export async function generateOperationsNarrative(input: {
 
     return parsed;
   } catch (e: any) {
-    console.error('[OPERATIONS_NARRATIVE] Excepción llamando a Anthropic:', e.message);
+    console.error('[OPERATIONS_NARRATIVE] Excepción llamando a Anthropic:', {
+      message: e?.message,
+      status: e?.status,
+      name: e?.name,
+      error: e?.error ? JSON.stringify(e.error) : undefined,
+      headers: e?.headers ? JSON.stringify(e.headers) : undefined,
+      stack: e?.stack,
+    });
     return null;
   }
 }

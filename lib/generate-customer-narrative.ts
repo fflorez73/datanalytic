@@ -223,10 +223,20 @@ export async function generateCustomerNarrative(input: {
   try {
     const response = await client.messages.create({
       model: ANTHROPIC_MODEL,
-      max_tokens: 8000,
+      // claude-opus-5 piensa ("thinking" adaptativo) por defecto y ese gasto
+      // de tokens es variable — ver nota extensa en generate-combined-narrative.ts
+      // (ahí se midió output_tokens llegando a 10485/12000 con datos reales).
+      // 8000 quedaba con poco margen; 16000 sigue muy por debajo del techo de
+      // 21333 que exige pasar a streaming (client.calculateNonstreamingTimeout).
+      max_tokens: 16000,
       system: buildSystemPrompt(),
       messages: [{ role: 'user', content: buildUserPrompt(input) }],
     });
+
+    if (response.stop_reason === 'max_tokens') {
+      console.error('[CUSTOMER_NARRATIVE] Respuesta truncada por max_tokens (thinking + output excedieron el presupuesto) — usage:', JSON.stringify(response.usage));
+      return null;
+    }
 
     const textBlock = response.content.find((b): b is Anthropic.TextBlock => b.type === 'text');
     if (!textBlock) {
@@ -242,7 +252,14 @@ export async function generateCustomerNarrative(input: {
 
     return parsed;
   } catch (e: any) {
-    console.error('[CUSTOMER_NARRATIVE] Excepción llamando a Anthropic:', e.message);
+    console.error('[CUSTOMER_NARRATIVE] Excepción llamando a Anthropic:', {
+      message: e?.message,
+      status: e?.status,
+      name: e?.name,
+      error: e?.error ? JSON.stringify(e.error) : undefined,
+      headers: e?.headers ? JSON.stringify(e.headers) : undefined,
+      stack: e?.stack,
+    });
     return null;
   }
 }

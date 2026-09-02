@@ -230,16 +230,24 @@ export async function generateSalesNarrative(input: {
   try {
     const response = await client.messages.create({
       model: ANTHROPIC_MODEL,
-      // Más alto que financial/customer (8000): el prompt de ventas puede incluir
+      // Más alto que financial/customer: el prompt de ventas puede incluir
       // muchas más líneas de datos crudas a la vez (evolución mensual, Pareto de
       // hasta 10 productos, margen por producto, canal) y el modelo consume una
       // porción no despreciable del presupuesto en "thinking" antes de escribir
       // el JSON — con 8000 se observó stop_reason "max_tokens" y JSON truncado
-      // en pruebas con un dataset de tamaño realista.
-      max_tokens: 12000,
+      // en pruebas con un dataset de tamaño realista; 12000 luego mostró poco
+      // margen también (ver nota extensa en generate-combined-narrative.ts:
+      // 10485/12000 con datos reales de otro módulo). 20000 sigue por debajo
+      // del techo de 21333 que exige pasar a streaming (calculateNonstreamingTimeout).
+      max_tokens: 20000,
       system: buildSystemPrompt(incluirRentabilidad),
       messages: [{ role: 'user', content: buildUserPrompt(input) }],
     });
+
+    if (response.stop_reason === 'max_tokens') {
+      console.error('[SALES_NARRATIVE] Respuesta truncada por max_tokens (thinking + output excedieron el presupuesto) — usage:', JSON.stringify(response.usage));
+      return null;
+    }
 
     const textBlock = response.content.find((b): b is Anthropic.TextBlock => b.type === 'text');
     if (!textBlock) {
@@ -255,7 +263,14 @@ export async function generateSalesNarrative(input: {
 
     return parsed;
   } catch (e: any) {
-    console.error('[SALES_NARRATIVE] Excepción llamando a Anthropic:', e.message);
+    console.error('[SALES_NARRATIVE] Excepción llamando a Anthropic:', {
+      message: e?.message,
+      status: e?.status,
+      name: e?.name,
+      error: e?.error ? JSON.stringify(e.error) : undefined,
+      headers: e?.headers ? JSON.stringify(e.headers) : undefined,
+      stack: e?.stack,
+    });
     return null;
   }
 }

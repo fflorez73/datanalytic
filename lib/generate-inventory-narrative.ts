@@ -255,13 +255,20 @@ export async function generateInventoryNarrative(input: {
   try {
     const response = await client.messages.create({
       model: ANTHROPIC_MODEL,
-      // Ver nota en generate-sales-narrative.ts: con datasets de tamaño
-      // realista (muchos SKUs) 8000 puede quedarse corto por el consumo de
-      // "thinking" tokens antes de escribir el JSON.
-      max_tokens: 12000,
+      // Ver nota en generate-sales-narrative.ts / generate-combined-narrative.ts:
+      // con datasets de tamaño realista (muchos SKUs) el consumo variable de
+      // "thinking" tokens deja poco margen a max_tokens bajos. 20000 sigue por
+      // debajo del techo de 21333 que exige pasar a streaming
+      // (calculateNonstreamingTimeout).
+      max_tokens: 20000,
       system: buildSystemPrompt(),
       messages: [{ role: 'user', content: buildUserPrompt(input) }],
     });
+
+    if (response.stop_reason === 'max_tokens') {
+      console.error('[INVENTORY_NARRATIVE] Respuesta truncada por max_tokens (thinking + output excedieron el presupuesto) — usage:', JSON.stringify(response.usage));
+      return null;
+    }
 
     const textBlock = response.content.find((b): b is Anthropic.TextBlock => b.type === 'text');
     if (!textBlock) {
@@ -277,7 +284,14 @@ export async function generateInventoryNarrative(input: {
 
     return parsed;
   } catch (e: any) {
-    console.error('[INVENTORY_NARRATIVE] Excepción llamando a Anthropic:', e.message);
+    console.error('[INVENTORY_NARRATIVE] Excepción llamando a Anthropic:', {
+      message: e?.message,
+      status: e?.status,
+      name: e?.name,
+      error: e?.error ? JSON.stringify(e.error) : undefined,
+      headers: e?.headers ? JSON.stringify(e.headers) : undefined,
+      stack: e?.stack,
+    });
     return null;
   }
 }
