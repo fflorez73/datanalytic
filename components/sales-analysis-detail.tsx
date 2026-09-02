@@ -5,6 +5,7 @@ import {
   type SalesAnalyticsResult,
 } from '@/lib/sales-analytics';
 import type { SalesNarrative } from '@/lib/generate-sales-narrative';
+import { AiProviderNote } from '@/components/ai-provider-note';
 import { STATUS_DOT_CLASS } from '@/lib/status-colors';
 import { SalesTrendChart } from '@/components/charts/sales-trend-chart';
 import { SalesTop5BarChart } from '@/components/charts/sales-top5-bar-chart';
@@ -513,6 +514,8 @@ export function SalesAnalysisDetail({
           <p className="text-sm leading-relaxed text-slate-100">{narrative.conclusion}</p>
         </section>
       )}
+
+      <AiProviderNote provider={narrative?.ai_provider} />
     </div>
   );
 }

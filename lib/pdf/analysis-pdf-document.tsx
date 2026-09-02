@@ -14,6 +14,7 @@ import {
 } from '@/lib/financial-indicators';
 import { STATUS_HEX } from '@/lib/status-colors';
 import type { FinancialNarrative } from '@/lib/generate-narrative';
+import { AiProviderPdfNote } from '@/lib/pdf/ai-provider-note';
 
 /**
  * Los 14 fonts estándar de PDF (Helvetica incluida) usan WinAnsiEncoding —
@@ -63,6 +64,7 @@ function sanitizeNarrativeForPdf(n: FinancialNarrative | null): FinancialNarrati
         }))
       : [],
     conclusion: sanitizeForPdf(n.conclusion),
+    ai_provider: n.ai_provider,
   };
 }
 
@@ -751,6 +753,7 @@ export function AnalysisPdfDocument({
             automáticamente por el motor de análisis de Datanalytic. No constituye una auditoría ni un dictamen de
             revisoría fiscal.
           </Text>
+          <AiProviderPdfNote provider={narrative.ai_provider} />
         </Page>
       )}
 

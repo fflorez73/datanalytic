@@ -1,5 +1,6 @@
 import { buildHrRiskMap, classifyHrIndicator, formatHrValue, type HrAnalyticsResult } from '@/lib/hr-analytics';
 import type { HrNarrative } from '@/lib/generate-hr-narrative';
+import { AiProviderNote } from '@/components/ai-provider-note';
 import { HrCostByAreaChart } from '@/components/charts/hr-cost-by-area-chart';
 import { HrRankingBarChart } from '@/components/charts/hr-ranking-bar-chart';
 import { ComposicionPieChart } from '@/components/charts/composicion-pie-chart';
@@ -540,6 +541,8 @@ export function HrAnalysisDetail({
           <p className="text-sm leading-relaxed text-slate-100">{narrative.conclusion}</p>
         </section>
       )}
+
+      <AiProviderNote provider={narrative?.ai_provider} />
     </div>
   );
 }

@@ -1,5 +1,6 @@
 import { formatCustomerValue, SEGMENT_COLOR, SEGMENT_STATUS, type CustomerAnalyticsResult } from '@/lib/customer-analytics';
 import type { CustomerNarrative } from '@/lib/generate-customer-narrative';
+import { AiProviderNote } from '@/components/ai-provider-note';
 import { CustomerRevenueBarChart } from '@/components/charts/customer-revenue-bar-chart';
 import { CustomerRfmScatterChart } from '@/components/charts/customer-rfm-scatter-chart';
 import { ComposicionPieChart } from '@/components/charts/composicion-pie-chart';
@@ -542,6 +543,8 @@ export function CustomerAnalysisDetail({
           <p className="text-sm leading-relaxed text-slate-100">{narrative.conclusion}</p>
         </section>
       )}
+
+      <AiProviderNote provider={narrative?.ai_provider} />
     </div>
   );
 }

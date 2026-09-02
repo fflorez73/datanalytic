@@ -10,6 +10,7 @@ import {
 } from '@/lib/financial-indicators';
 import { STATUS_DOT_CLASS } from '@/lib/status-colors';
 import type { FinancialNarrative } from '@/lib/generate-narrative';
+import { AiProviderNote } from '@/components/ai-provider-note';
 import { IndicatorTargetChart } from '@/components/charts/indicator-target-chart';
 import { IndicatorTrendChart } from '@/components/charts/indicator-trend-chart';
 import { CicloEfectivoChart } from '@/components/charts/ciclo-efectivo-chart';
@@ -603,6 +604,8 @@ export function AnalysisDetail({
           <p className="text-sm leading-relaxed text-slate-100">{narrative.conclusion}</p>
         </section>
       )}
+
+      <AiProviderNote provider={narrative?.ai_provider} />
     </div>
   );
 }

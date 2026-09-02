@@ -1,6 +1,7 @@
 import 'server-only';
 import { Document, Page, Text, View, StyleSheet } from '@react-pdf/renderer';
 import type { CombinedNarrative } from '@/lib/generate-combined-narrative';
+import { AiProviderPdfNote } from '@/lib/pdf/ai-provider-note';
 
 function sanitizeForPdf(text: unknown): string {
   if (typeof text !== 'string') return '';
@@ -32,6 +33,7 @@ function sanitizeNarrativeForPdf(n: CombinedNarrative | null): CombinedNarrative
       ? n.recomendaciones.map((r) => ({ accion: sanitizeForPdf(r?.accion), responsable_sugerido: sanitizeForPdf(r?.responsable_sugerido), horizonte: sanitizeForPdf(r?.horizonte) }))
       : [],
     conclusion: sanitizeForPdf(n.conclusion),
+    ai_provider: n.ai_provider,
   };
 }
 
@@ -341,6 +343,7 @@ export function CombinedPdfDocument({
             Este es un reporte especial de síntesis generado automáticamente a partir de análisis ya publicados. No
             reemplaza a los informes individuales ni constituye una auditoría formal.
           </Text>
+          <AiProviderPdfNote provider={narrative.ai_provider} />
         </Page>
       )}
 

@@ -2,6 +2,7 @@ import 'server-only';
 import { Document, Page, Text, View, StyleSheet } from '@react-pdf/renderer';
 import { formatCostValue, buildCostRiskMap, type CostAnalyticsResult } from '@/lib/cost-profitability-analytics';
 import type { CostProfitabilityNarrative } from '@/lib/generate-cost-profitability-narrative';
+import { AiProviderPdfNote } from '@/lib/pdf/ai-provider-note';
 
 function sanitizeForPdf(text: unknown): string {
   if (typeof text !== 'string') return '';
@@ -35,6 +36,7 @@ function sanitizeNarrativeForPdf(n: CostProfitabilityNarrative | null): CostProf
         }))
       : [],
     conclusion: sanitizeForPdf(n.conclusion),
+    ai_provider: n.ai_provider,
   };
 }
 
@@ -588,6 +590,7 @@ export function CostProfitabilityPdfDocument({
             Este informe se emite sobre la base de la información de costos suministrada y de la narrativa generada
             automáticamente por el motor de análisis de Datanalytic. No constituye una auditoría contable formal.
           </Text>
+          <AiProviderPdfNote provider={narrative.ai_provider} />
         </Page>
       )}
 

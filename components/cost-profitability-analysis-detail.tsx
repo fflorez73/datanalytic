@@ -1,5 +1,6 @@
 import { buildCostRiskMap, classifyCostIndicator, formatCostValue, type CostAnalyticsResult } from '@/lib/cost-profitability-analytics';
 import type { CostProfitabilityNarrative } from '@/lib/generate-cost-profitability-narrative';
+import { AiProviderNote } from '@/components/ai-provider-note';
 import { CostProfitabilityRankingBarChart } from '@/components/charts/cost-profitability-ranking-bar-chart';
 import { CostStructureBarChart } from '@/components/charts/cost-structure-bar-chart';
 import { KpiCard } from '@/components/kpi-card';
@@ -504,6 +505,8 @@ export function CostProfitabilityAnalysisDetail({
           <p className="text-sm leading-relaxed text-slate-100">{narrative.conclusion}</p>
         </section>
       )}
+
+      <AiProviderNote provider={narrative?.ai_provider} />
     </div>
   );
 }

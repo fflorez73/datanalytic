@@ -5,6 +5,7 @@ import {
   type OperationsAnalyticsResult,
 } from '@/lib/operations-analytics';
 import type { OperationsNarrative } from '@/lib/generate-operations-narrative';
+import { AiProviderNote } from '@/components/ai-provider-note';
 import { OperationsRankingBarChart } from '@/components/charts/operations-ranking-bar-chart';
 import { OperationsRealVsMetaChart } from '@/components/charts/operations-real-vs-meta-chart';
 import { ComposicionPieChart } from '@/components/charts/composicion-pie-chart';
@@ -522,6 +523,8 @@ export function OperationsAnalysisDetail({
           <p className="text-sm leading-relaxed text-slate-100">{narrative.conclusion}</p>
         </section>
       )}
+
+      <AiProviderNote provider={narrative?.ai_provider} />
     </div>
   );
 }

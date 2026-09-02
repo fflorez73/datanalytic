@@ -2,6 +2,7 @@ import 'server-only';
 import { Document, Page, Path, Svg, Text, View, StyleSheet } from '@react-pdf/renderer';
 import { formatHrValue, buildHrRiskMap, type HrAnalyticsResult } from '@/lib/hr-analytics';
 import type { HrNarrative } from '@/lib/generate-hr-narrative';
+import { AiProviderPdfNote } from '@/lib/pdf/ai-provider-note';
 
 function sanitizeForPdf(text: unknown): string {
   if (typeof text !== 'string') return '';
@@ -35,6 +36,7 @@ function sanitizeNarrativeForPdf(n: HrNarrative | null): HrNarrative | null {
         }))
       : [],
     conclusion: sanitizeForPdf(n.conclusion),
+    ai_provider: n.ai_provider,
   };
 }
 
@@ -663,6 +665,7 @@ export function HrPdfDocument({
             narrativa generada automáticamente por el motor de análisis de Datanalytic. No constituye una
             auditoría laboral formal.
           </Text>
+          <AiProviderPdfNote provider={narrative.ai_provider} />
         </Page>
       )}
 

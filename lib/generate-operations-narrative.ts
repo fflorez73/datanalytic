@@ -1,8 +1,6 @@
 import 'server-only';
-import Anthropic from '@anthropic-ai/sdk';
 import { formatOperationsValue, type OperationsAnalyticsResult } from './operations-analytics';
-
-const ANTHROPIC_MODEL = 'claude-opus-5';
+import { generateNarrativeWithFallback, type AiProvider } from './ai-client';
 
 const SECCION_TITULOS = [
   'Productividad y Utilización de Capacidad',
@@ -25,6 +23,8 @@ export type OperationsNarrative = {
   senales_alerta: string[];
   recomendaciones: { accion: string; responsable_sugerido: string; horizonte: string }[];
   conclusion: string;
+  /** Proveedor de IA que generó esta narrativa — 'gemini' solo cuando Claude falló y se usó el respaldo. */
+  ai_provider?: AiProvider;
 };
 
 function buildResultsSummary(results: OperationsAnalyticsResult): string {
@@ -220,44 +220,21 @@ export async function generateOperationsNarrative(input: {
   analysisTypeName: string;
   results: OperationsAnalyticsResult;
 }): Promise<OperationsNarrative | null> {
-  if (!process.env.ANTHROPIC_API_KEY) {
-    console.warn('[OPERATIONS_NARRATIVE] ANTHROPIC_API_KEY no configurada — se omite la narrativa ejecutiva.');
-    return null;
-  }
-
-  const client = new Anthropic();
-
   try {
-    const response = await client.messages.create({
-      model: ANTHROPIC_MODEL,
+    const { data, provider } = await generateNarrativeWithFallback({
+      system: buildSystemPrompt(),
+      user: buildUserPrompt(input),
       // Ver nota en generate-sales-narrative.ts / generate-inventory-narrative.ts /
       // generate-combined-narrative.ts. 20000 sigue por debajo del techo de
       // 21333 que exige pasar a streaming (calculateNonstreamingTimeout).
-      max_tokens: 20000,
-      system: buildSystemPrompt(),
-      messages: [{ role: 'user', content: buildUserPrompt(input) }],
+      maxTokens: 20000,
+      parse: parseNarrativeJson,
+      logPrefix: '[OPERATIONS_NARRATIVE]',
     });
 
-    if (response.stop_reason === 'max_tokens') {
-      console.error('[OPERATIONS_NARRATIVE] Respuesta truncada por max_tokens (thinking + output excedieron el presupuesto) — usage:', JSON.stringify(response.usage));
-      return null;
-    }
-
-    const textBlock = response.content.find((b): b is Anthropic.TextBlock => b.type === 'text');
-    if (!textBlock) {
-      console.error('[OPERATIONS_NARRATIVE] Respuesta de Anthropic sin contenido de texto:', JSON.stringify(response).substring(0, 300));
-      return null;
-    }
-
-    const parsed = parseNarrativeJson(textBlock.text);
-    if (!parsed) {
-      console.error('[OPERATIONS_NARRATIVE] No se pudo parsear/validar el JSON de la respuesta:', textBlock.text.substring(0, 500));
-      return null;
-    }
-
-    return parsed;
+    return { ...data, ai_provider: provider };
   } catch (e: any) {
-    console.error('[OPERATIONS_NARRATIVE] Excepción llamando a Anthropic:', {
+    console.error('[OPERATIONS_NARRATIVE] No se pudo generar la narrativa ejecutiva (Claude y Gemini fallaron):', {
       message: e?.message,
       status: e?.status,
       name: e?.name,

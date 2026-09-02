@@ -1,8 +1,6 @@
 import 'server-only';
-import Anthropic from '@anthropic-ai/sdk';
 import { formatCustomerValue, type CustomerAnalyticsResult } from './customer-analytics';
-
-const ANTHROPIC_MODEL = 'claude-opus-5';
+import { generateNarrativeWithFallback, type AiProvider } from './ai-client';
 
 const SECCION_TITULOS = [
   'Perfil de la Cartera y Concentración',
@@ -25,6 +23,8 @@ export type CustomerNarrative = {
   senales_alerta: string[];
   recomendaciones: { accion: string; responsable_sugerido: string; horizonte: string }[];
   conclusion: string;
+  /** Proveedor de IA que generó esta narrativa — 'gemini' solo cuando Claude falló y se usó el respaldo. */
+  ai_provider?: AiProvider;
 };
 
 function buildResultsSummary(results: CustomerAnalyticsResult): string {
@@ -213,46 +213,23 @@ export async function generateCustomerNarrative(input: {
   analysisTypeName: string;
   results: CustomerAnalyticsResult;
 }): Promise<CustomerNarrative | null> {
-  if (!process.env.ANTHROPIC_API_KEY) {
-    console.warn('[CUSTOMER_NARRATIVE] ANTHROPIC_API_KEY no configurada — se omite la narrativa ejecutiva.');
-    return null;
-  }
-
-  const client = new Anthropic();
-
   try {
-    const response = await client.messages.create({
-      model: ANTHROPIC_MODEL,
+    const { data, provider } = await generateNarrativeWithFallback({
+      system: buildSystemPrompt(),
+      user: buildUserPrompt(input),
       // claude-opus-5 piensa ("thinking" adaptativo) por defecto y ese gasto
       // de tokens es variable — ver nota extensa en generate-combined-narrative.ts
       // (ahí se midió output_tokens llegando a 10485/12000 con datos reales).
       // 8000 quedaba con poco margen; 16000 sigue muy por debajo del techo de
       // 21333 que exige pasar a streaming (client.calculateNonstreamingTimeout).
-      max_tokens: 16000,
-      system: buildSystemPrompt(),
-      messages: [{ role: 'user', content: buildUserPrompt(input) }],
+      maxTokens: 16000,
+      parse: parseNarrativeJson,
+      logPrefix: '[CUSTOMER_NARRATIVE]',
     });
 
-    if (response.stop_reason === 'max_tokens') {
-      console.error('[CUSTOMER_NARRATIVE] Respuesta truncada por max_tokens (thinking + output excedieron el presupuesto) — usage:', JSON.stringify(response.usage));
-      return null;
-    }
-
-    const textBlock = response.content.find((b): b is Anthropic.TextBlock => b.type === 'text');
-    if (!textBlock) {
-      console.error('[CUSTOMER_NARRATIVE] Respuesta de Anthropic sin contenido de texto:', JSON.stringify(response).substring(0, 300));
-      return null;
-    }
-
-    const parsed = parseNarrativeJson(textBlock.text);
-    if (!parsed) {
-      console.error('[CUSTOMER_NARRATIVE] No se pudo parsear/validar el JSON de la respuesta:', textBlock.text.substring(0, 500));
-      return null;
-    }
-
-    return parsed;
+    return { ...data, ai_provider: provider };
   } catch (e: any) {
-    console.error('[CUSTOMER_NARRATIVE] Excepción llamando a Anthropic:', {
+    console.error('[CUSTOMER_NARRATIVE] No se pudo generar la narrativa ejecutiva (Claude y Gemini fallaron):', {
       message: e?.message,
       status: e?.status,
       name: e?.name,

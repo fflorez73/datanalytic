@@ -3,6 +3,7 @@ import type { CombinedNarrative } from '@/lib/generate-combined-narrative';
 import { MODULE_META, DEFAULT_MODULE_META } from '@/lib/module-meta';
 import { KpiCard } from '@/components/kpi-card';
 import { DownloadPdfButton } from '@/components/download-pdf-button';
+import { AiProviderNote } from '@/components/ai-provider-note';
 
 const DICTAMEN_BANNER_BG: Record<string, string> = {
   favorable: 'bg-emerald-600',
@@ -276,6 +277,8 @@ export function CombinedAnalysisDetail({
           <p className="text-sm leading-relaxed text-indigo-100">{narrative.conclusion}</p>
         </section>
       )}
+
+      <AiProviderNote provider={narrative?.ai_provider} />
     </div>
   );
 }

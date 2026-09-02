@@ -2,6 +2,7 @@ import 'server-only';
 import { Document, Page, Path, Svg, Text, View, StyleSheet } from '@react-pdf/renderer';
 import { formatInventoryValue, buildInventoryRiskMap, ABC_CLASS_COLOR, type InventoryAnalyticsResult } from '@/lib/inventory-analytics';
 import type { InventoryNarrative } from '@/lib/generate-inventory-narrative';
+import { AiProviderPdfNote } from '@/lib/pdf/ai-provider-note';
 
 function sanitizeForPdf(text: unknown): string {
   if (typeof text !== 'string') return '';
@@ -35,6 +36,7 @@ function sanitizeNarrativeForPdf(n: InventoryNarrative | null): InventoryNarrati
         }))
       : [],
     conclusion: sanitizeForPdf(n.conclusion),
+    ai_provider: n.ai_provider,
   };
 }
 
@@ -651,6 +653,7 @@ export function InventoryPdfDocument({
             generada automáticamente por el motor de análisis de Datanalytic. No constituye una auditoría de
             existencias física ni un dictamen de revisoría fiscal.
           </Text>
+          <AiProviderPdfNote provider={narrative.ai_provider} />
         </Page>
       )}
 

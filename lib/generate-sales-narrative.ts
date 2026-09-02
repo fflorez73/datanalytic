@@ -1,8 +1,6 @@
 import 'server-only';
-import Anthropic from '@anthropic-ai/sdk';
 import { formatSalesValue, type SalesAnalyticsResult } from './sales-analytics';
-
-const ANTHROPIC_MODEL = 'claude-opus-5';
+import { generateNarrativeWithFallback, type AiProvider } from './ai-client';
 
 const SECCION_BASE = ['Evolución y Desempeño de Ventas', 'Análisis Pareto y Concentración de Producto', 'Estacionalidad y Tendencia'] as const;
 const SECCION_RENTABILIDAD = 'Rentabilidad por Línea/Canal' as const;
@@ -21,6 +19,8 @@ export type SalesNarrative = {
   senales_alerta: string[];
   recomendaciones: { accion: string; responsable_sugerido: string; horizonte: string }[];
   conclusion: string;
+  /** Proveedor de IA que generó esta narrativa — 'gemini' solo cuando Claude falló y se usó el respaldo. */
+  ai_provider?: AiProvider;
 };
 
 function buildResultsSummary(results: SalesAnalyticsResult): string {
@@ -214,22 +214,16 @@ export async function generateSalesNarrative(input: {
   analysisTypeName: string;
   results: SalesAnalyticsResult;
 }): Promise<SalesNarrative | null> {
-  if (!process.env.ANTHROPIC_API_KEY) {
-    console.warn('[SALES_NARRATIVE] ANTHROPIC_API_KEY no configurada — se omite la narrativa ejecutiva.');
-    return null;
-  }
-
   const incluirRentabilidad = Boolean(
     (input.results.margenPorProducto && input.results.margenPorProducto.length > 0) ||
       (input.results.canal && input.results.canal.length > 0)
   );
   const expectedSecciones = incluirRentabilidad ? SECCION_BASE.length + 1 : SECCION_BASE.length;
 
-  const client = new Anthropic();
-
   try {
-    const response = await client.messages.create({
-      model: ANTHROPIC_MODEL,
+    const { data, provider } = await generateNarrativeWithFallback({
+      system: buildSystemPrompt(incluirRentabilidad),
+      user: buildUserPrompt(input),
       // Más alto que financial/customer: el prompt de ventas puede incluir
       // muchas más líneas de datos crudas a la vez (evolución mensual, Pareto de
       // hasta 10 productos, margen por producto, canal) y el modelo consume una
@@ -239,31 +233,14 @@ export async function generateSalesNarrative(input: {
       // margen también (ver nota extensa en generate-combined-narrative.ts:
       // 10485/12000 con datos reales de otro módulo). 20000 sigue por debajo
       // del techo de 21333 que exige pasar a streaming (calculateNonstreamingTimeout).
-      max_tokens: 20000,
-      system: buildSystemPrompt(incluirRentabilidad),
-      messages: [{ role: 'user', content: buildUserPrompt(input) }],
+      maxTokens: 20000,
+      parse: (text) => parseNarrativeJson(text, expectedSecciones),
+      logPrefix: '[SALES_NARRATIVE]',
     });
 
-    if (response.stop_reason === 'max_tokens') {
-      console.error('[SALES_NARRATIVE] Respuesta truncada por max_tokens (thinking + output excedieron el presupuesto) — usage:', JSON.stringify(response.usage));
-      return null;
-    }
-
-    const textBlock = response.content.find((b): b is Anthropic.TextBlock => b.type === 'text');
-    if (!textBlock) {
-      console.error('[SALES_NARRATIVE] Respuesta de Anthropic sin contenido de texto:', JSON.stringify(response).substring(0, 300));
-      return null;
-    }
-
-    const parsed = parseNarrativeJson(textBlock.text, expectedSecciones);
-    if (!parsed) {
-      console.error('[SALES_NARRATIVE] No se pudo parsear/validar el JSON de la respuesta:', textBlock.text.substring(0, 500));
-      return null;
-    }
-
-    return parsed;
+    return { ...data, ai_provider: provider };
   } catch (e: any) {
-    console.error('[SALES_NARRATIVE] Excepción llamando a Anthropic:', {
+    console.error('[SALES_NARRATIVE] No se pudo generar la narrativa ejecutiva (Claude y Gemini fallaron):', {
       message: e?.message,
       status: e?.status,
       name: e?.name,

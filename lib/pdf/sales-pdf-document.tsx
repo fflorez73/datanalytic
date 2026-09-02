@@ -2,6 +2,7 @@ import 'server-only';
 import { Document, Page, Path, Svg, Text, View, StyleSheet } from '@react-pdf/renderer';
 import { formatSalesValue, buildSalesRiskMap, type SalesAnalyticsResult } from '@/lib/sales-analytics';
 import type { SalesNarrative } from '@/lib/generate-sales-narrative';
+import { AiProviderPdfNote } from '@/lib/pdf/ai-provider-note';
 
 function sanitizeForPdf(text: unknown): string {
   if (typeof text !== 'string') return '';
@@ -35,6 +36,7 @@ function sanitizeNarrativeForPdf(n: SalesNarrative | null): SalesNarrative | nul
         }))
       : [],
     conclusion: sanitizeForPdf(n.conclusion),
+    ai_provider: n.ai_provider,
   };
 }
 
@@ -621,6 +623,7 @@ export function SalesPdfDocument({
             generada automáticamente por el motor de análisis de Datanalytic. No constituye una auditoría de
             estados financieros.
           </Text>
+          <AiProviderPdfNote provider={narrative.ai_provider} />
         </Page>
       )}
 

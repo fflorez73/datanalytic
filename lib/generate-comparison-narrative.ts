@@ -1,13 +1,13 @@
 import 'server-only';
-import Anthropic from '@anthropic-ai/sdk';
 import { getComparisonIndicators, formatComparisonValue } from './comparison-indicators';
-
-const ANTHROPIC_MODEL = 'claude-opus-5';
+import { generateNarrativeWithFallback, type AiProvider } from './ai-client';
 
 export type ComparisonNarrative = {
   resumen: string;
   tendencia_general: 'positiva' | 'estable' | 'negativa' | 'mixta';
   observaciones: string[];
+  /** Proveedor de IA que generó esta narrativa — 'gemini' solo cuando Claude falló y se usó el respaldo. */
+  ai_provider?: AiProvider;
 };
 
 function buildPeriodsSummary(code: string, periods: { periodEnd: string; results: unknown }[]): string {
@@ -83,17 +83,12 @@ export async function generateComparisonNarrative(input: {
   code: string;
   periods: { periodEnd: string; results: unknown }[];
 }): Promise<ComparisonNarrative | null> {
-  if (!process.env.ANTHROPIC_API_KEY) {
-    console.warn('[COMPARISON_NARRATIVE] ANTHROPIC_API_KEY no configurada — se omite la interpretación.');
-    return null;
-  }
   if (input.periods.length < 2) return null;
 
-  const client = new Anthropic();
-
   try {
-    const response = await client.messages.create({
-      model: ANTHROPIC_MODEL,
+    const { data, provider } = await generateNarrativeWithFallback({
+      system: buildSystemPrompt(),
+      user: buildUserPrompt(input),
       // Prompt corto (unos pocos indicadores por período), pero claude-opus-5
       // gasta presupuesto de "thinking" antes de escribir el JSON incluso en
       // respuestas cortas — ver nota extensa en generate-combined-narrative.ts.
@@ -104,31 +99,14 @@ export async function generateComparisonNarrative(input: {
       // así que el margen no se limita al mínimo 2x de lo observado (~1336):
       // 8000 deja un colchón mucho mayor sin acercarse al techo de 21333 que
       // exige streaming (calculateNonstreamingTimeout).
-      max_tokens: 8000,
-      system: buildSystemPrompt(),
-      messages: [{ role: 'user', content: buildUserPrompt(input) }],
+      maxTokens: 8000,
+      parse: parseNarrativeJson,
+      logPrefix: '[COMPARISON_NARRATIVE]',
     });
 
-    if (response.stop_reason === 'max_tokens') {
-      console.error('[COMPARISON_NARRATIVE] Respuesta truncada por max_tokens (thinking + output excedieron el presupuesto) — usage:', JSON.stringify(response.usage));
-      return null;
-    }
-
-    const textBlock = response.content.find((b): b is Anthropic.TextBlock => b.type === 'text');
-    if (!textBlock) {
-      console.error('[COMPARISON_NARRATIVE] Respuesta de Anthropic sin contenido de texto:', JSON.stringify(response).substring(0, 300));
-      return null;
-    }
-
-    const parsed = parseNarrativeJson(textBlock.text);
-    if (!parsed) {
-      console.error('[COMPARISON_NARRATIVE] No se pudo parsear/validar el JSON de la respuesta:', textBlock.text.substring(0, 500));
-      return null;
-    }
-
-    return parsed;
+    return { ...data, ai_provider: provider };
   } catch (e: any) {
-    console.error('[COMPARISON_NARRATIVE] Excepción llamando a Anthropic:', {
+    console.error('[COMPARISON_NARRATIVE] No se pudo generar la interpretación (Claude y Gemini fallaron):', {
       message: e?.message,
       status: e?.status,
       name: e?.name,

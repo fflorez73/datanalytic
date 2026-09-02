@@ -2,6 +2,7 @@ import 'server-only';
 import { Document, Page, Path, Svg, Text, View, StyleSheet } from '@react-pdf/renderer';
 import { formatOperationsValue, buildOperationsRiskMap, type OperationsAnalyticsResult } from '@/lib/operations-analytics';
 import type { OperationsNarrative } from '@/lib/generate-operations-narrative';
+import { AiProviderPdfNote } from '@/lib/pdf/ai-provider-note';
 
 function sanitizeForPdf(text: unknown): string {
   if (typeof text !== 'string') return '';
@@ -35,6 +36,7 @@ function sanitizeNarrativeForPdf(n: OperationsNarrative | null): OperationsNarra
         }))
       : [],
     conclusion: sanitizeForPdf(n.conclusion),
+    ai_provider: n.ai_provider,
   };
 }
 
@@ -630,6 +632,7 @@ export function OperationsPdfDocument({
             generada automáticamente por el motor de análisis de Datanalytic. No constituye una auditoría
             operativa formal.
           </Text>
+          <AiProviderPdfNote provider={narrative.ai_provider} />
         </Page>
       )}
 

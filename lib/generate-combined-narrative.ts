@@ -1,9 +1,7 @@
 import 'server-only';
-import Anthropic from '@anthropic-ai/sdk';
 import { getComparisonIndicators, formatComparisonValue } from './comparison-indicators';
 import { MODULE_META } from './module-meta';
-
-const ANTHROPIC_MODEL = 'claude-opus-5';
+import { generateNarrativeWithFallback, type AiProvider } from './ai-client';
 
 export type CombinedNarrative = {
   resumen_ejecutivo: string;
@@ -14,6 +12,8 @@ export type CombinedNarrative = {
   riesgos: { descripcion: string; nivel: 'verde' | 'amarillo' | 'rojo'; prioridad: 'alta' | 'media' | 'baja' }[];
   recomendaciones: { accion: string; responsable_sugerido: string; horizonte: string }[];
   conclusion: string;
+  /** Proveedor de IA que generó esta narrativa — 'gemini' solo cuando Claude falló y se usó el respaldo. */
+  ai_provider?: AiProvider;
 };
 
 export type CombinedSourceInput = {
@@ -149,57 +149,27 @@ export async function generateCombinedNarrative(input: {
   title: string;
   sources: CombinedSourceInput[];
 }): Promise<CombinedNarrative | null> {
-  if (!process.env.ANTHROPIC_API_KEY) {
-    console.warn('[COMBINED_NARRATIVE] ANTHROPIC_API_KEY no configurada — no se puede generar la síntesis.');
-    return null;
-  }
-
-  const client = new Anthropic();
-
   try {
-    // claude-opus-5 piensa ("thinking" adaptativo) por defecto y ese gasto no
-    // es predecible: con 5 fuentes reales (Financiero+Clientes+Ventas+
-    // Inventarios+Operativo) se midió output_tokens variando 8732-10485 con
-    // max_tokens: 12000 — muy cerca del techo, y un run con más "thinking" lo
-    // excede, trunca el JSON a mitad y hace fallar el parseo (síntoma real de
-    // "No se pudo generar la síntesis..." en producción). Con más fuentes
-    // combinadas el riesgo crece, así que el margen debe ser generoso. El SDK
-    // exige streaming para max_tokens > 21333 (client.calculateNonstreamingTimeout:
-    // 60min*maxTokens/128000 > 10min) — probado localmente: con max_tokens:
-    // 24000 sin stream(), messages.create lanza "Streaming is required for
-    // operations that may take longer than 10 minutes" antes de llamar a la
-    // API. Se usa stream()+finalMessage() para poder dar un margen amplio.
-    const stream = client.messages.stream({
-      model: ANTHROPIC_MODEL,
-      max_tokens: 32000,
+    const { data, provider } = await generateNarrativeWithFallback({
       system: buildSystemPrompt(),
-      messages: [{ role: 'user', content: buildUserPrompt(input) }],
+      user: buildUserPrompt(input),
+      // claude-opus-5 piensa ("thinking" adaptativo) por defecto y ese gasto no
+      // es predecible: con 5 fuentes reales (Financiero+Clientes+Ventas+
+      // Inventarios+Operativo) se midió output_tokens variando 8732-10485 con
+      // max_tokens: 12000 — muy cerca del techo, y un run con más "thinking" lo
+      // excede, trunca el JSON a mitad y hace fallar el parseo (síntoma real de
+      // "No se pudo generar la síntesis..." en producción). Con más fuentes
+      // combinadas el riesgo crece, así que el margen debe ser generoso — el
+      // intento con Claude en ai-client.ts siempre usa streaming, así que este
+      // valor no está limitado por el techo de 21333 de las llamadas no-streaming.
+      maxTokens: 32000,
+      parse: parseNarrativeJson,
+      logPrefix: '[COMBINED_NARRATIVE]',
     });
-    const response = await stream.finalMessage();
 
-    if (response.stop_reason === 'max_tokens') {
-      console.error(
-        '[COMBINED_NARRATIVE] Respuesta truncada por max_tokens (thinking + output excedieron el presupuesto) — usage:',
-        JSON.stringify(response.usage)
-      );
-      return null;
-    }
-
-    const textBlock = response.content.find((b): b is Anthropic.TextBlock => b.type === 'text');
-    if (!textBlock) {
-      console.error('[COMBINED_NARRATIVE] Respuesta de Anthropic sin contenido de texto:', JSON.stringify(response).substring(0, 300));
-      return null;
-    }
-
-    const parsed = parseNarrativeJson(textBlock.text);
-    if (!parsed) {
-      console.error('[COMBINED_NARRATIVE] No se pudo parsear/validar el JSON de la respuesta:', textBlock.text.substring(0, 500));
-      return null;
-    }
-
-    return parsed;
+    return { ...data, ai_provider: provider };
   } catch (e: any) {
-    console.error('[COMBINED_NARRATIVE] Excepción llamando a Anthropic:', {
+    console.error('[COMBINED_NARRATIVE] No se pudo generar la síntesis (Claude y Gemini fallaron):', {
       message: e?.message,
       status: e?.status,
       name: e?.name,

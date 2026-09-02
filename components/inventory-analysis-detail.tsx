@@ -6,6 +6,7 @@ import {
   type InventoryAnalyticsResult,
 } from '@/lib/inventory-analytics';
 import type { InventoryNarrative } from '@/lib/generate-inventory-narrative';
+import { AiProviderNote } from '@/components/ai-provider-note';
 import { InventoryTopBarChart } from '@/components/charts/inventory-top-bar-chart';
 import { InventoryAbcChart } from '@/components/charts/inventory-abc-chart';
 import { ComposicionPieChart } from '@/components/charts/composicion-pie-chart';
@@ -606,6 +607,8 @@ export function InventoryAnalysisDetail({
           <p className="text-sm leading-relaxed text-slate-100">{narrative.conclusion}</p>
         </section>
       )}
+
+      <AiProviderNote provider={narrative?.ai_provider} />
     </div>
   );
 }
